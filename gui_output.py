@@ -11,8 +11,9 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak, KeepTogether
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
+from reportlab.pdfgen import canvas
 
 FILE_DB = "database_monitoring_jtb.xlsx"
 FILE_ALAT = "database_inspeksi_alat.xlsx"
@@ -86,6 +87,29 @@ def load_pengaturan_laporan():
         except:
             return default
     return default
+
+def add_header_logo(canvas, doc):
+    """Menambahkan logo di header setiap halaman"""
+    canvas.saveState()
+    
+    logo_skk = "logo_skkmigas.png"
+    logo_pepc = "logo_pertamina_epcepu.png"
+    
+    # Logo kiri (SKK Migas)
+    if os.path.exists(logo_skk):
+        try:
+            canvas.drawImage(logo_skk, 1.8*cm, A4[1] - 1.8*cm, width=2.6*cm, height=1.0*cm, mask='auto')
+        except:
+            pass
+    
+    # Logo kanan (Pertamina)
+    if os.path.exists(logo_pepc):
+        try:
+            canvas.drawImage(logo_pepc, A4[0] - 1.8*cm - 3.0*cm, A4[1] - 1.8*cm, width=3.0*cm, height=1.0*cm, mask='auto')
+        except:
+            pass
+    
+    canvas.restoreState()
 
 def buat_excel_harian_resmi(df_db_all, tgl_target):
     titik_data = load_titik()
@@ -357,56 +381,31 @@ def buat_pdf_laporan(df_db, tgl_target):
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=A4,
-        rightMargin=2.0*cm, leftMargin=2.0*cm,
-        topMargin=1.5*cm, bottomMargin=1.5*cm
+        rightMargin=1.8*cm, leftMargin=1.8*cm,
+        topMargin=2.5*cm, bottomMargin=1.2*cm
     )
     
     styles = getSampleStyleSheet()
-    style_title = ParagraphStyle('TitleCustom', parent=styles['Heading1'], fontSize=12, alignment=TA_CENTER, spaceAfter=2, fontName='Helvetica-Bold', textColor=colors.HexColor('#000000'))
-    style_subtitle = ParagraphStyle('Subtitle', parent=styles['Normal'], fontSize=11, alignment=TA_CENTER, spaceAfter=6, fontName='Helvetica-Bold')
-    style_heading = ParagraphStyle('HeadingCustom', parent=styles['Heading2'], fontSize=11, spaceBefore=8, spaceAfter=3, fontName='Helvetica-Bold')
-    style_normal = ParagraphStyle('NormalCustom', parent=styles['Normal'], fontSize=11, leading=14, alignment=TA_JUSTIFY, fontName='Helvetica')
-    style_small = ParagraphStyle('Small', parent=styles['Normal'], fontSize=9, leading=11, alignment=TA_CENTER)
+    style_title = ParagraphStyle('TitleCustom', parent=styles['Heading1'], fontSize=12, alignment=TA_CENTER, spaceAfter=2, fontName='Helvetica-Bold')
+    style_subtitle = ParagraphStyle('Subtitle', parent=styles['Normal'], fontSize=11, alignment=TA_CENTER, spaceAfter=3, fontName='Helvetica-Bold')
+    style_heading = ParagraphStyle('HeadingCustom', parent=styles['Heading2'], fontSize=11, spaceBefore=5, spaceAfter=2, fontName='Helvetica-Bold')
+    style_normal = ParagraphStyle('NormalCustom', parent=styles['Normal'], fontSize=10, leading=12, alignment=TA_JUSTIFY, fontName='Helvetica')
+    style_small = ParagraphStyle('Small', parent=styles['Normal'], fontSize=9, leading=11, alignment=TA_LEFT)
     style_center = ParagraphStyle('Center', parent=styles['Normal'], fontSize=10, alignment=TA_CENTER)
+    style_left = ParagraphStyle('Left', parent=styles['Normal'], fontSize=10, alignment=TA_LEFT)
     style_caption = ParagraphStyle('Caption', parent=styles['Normal'], fontSize=9, leading=11, alignment=TA_CENTER, fontName='Helvetica')
     
     story = []
     titik_data = load_titik()
     
-    # Header Logo
-    logo_skk = "logo_skkmigas.png" if os.path.exists("logo_skkmigas.png") else None
-    logo_pepc = "logo_pertamina_epcepu.png" if os.path.exists("logo_pertamina_epcepu.png") else None
-    
-    if logo_skk or logo_pepc:
-        row_logo = []
-        if logo_skk:
-            img_skk = Image(logo_skk, width=2.8*cm, height=1.1*cm)
-            row_logo.append(img_skk)
-        else:
-            row_logo.append("")
-        row_logo.append("")
-        if logo_pepc:
-            img_pepc = Image(logo_pepc, width=3.2*cm, height=1.1*cm)
-            row_logo.append(img_pepc)
-        else:
-            row_logo.append("")
-        
-        t_header = Table([row_logo], colWidths=[6*cm, 5*cm, 6*cm])
-        t_header.setStyle(TableStyle([
-            ('ALIGN', (0, 0), (0, 0), 'LEFT'),
-            ('ALIGN', (2, 0), (2, 0), 'RIGHT'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ]))
-        story.append(t_header)
-    
-    story.append(Spacer(1, 6))
+    story.append(Spacer(1, 3))
     story.append(Paragraph("LAPORAN PEMANTAUAN UDARA SESAAT", style_title))
     story.append(Paragraph("PADA KEGIATAN PRODUKSI FASE OPERASI", style_subtitle))
-    story.append(Spacer(1, 4))
+    story.append(Spacer(1, 2))
     
-    intro = "Berikut disampaikan laporan kegiatan pemantauan sesaat dengan menggunakan <i>Multiple Gas Detector</i> dan SO<sub>2</sub> detector di Area GPF dan sekitar GPF pada saat kegiatan Produksi Fase Operasi."
+    intro = "Berikut disampaikan laporan kegiatan pemantauan sesaat dengan menggunakan <i>Multiple Gas Detector</i> dan SO2 detector di Area GPF dan sekitar GPF pada saat kegiatan Produksi Fase Operasi."
     story.append(Paragraph(intro, style_normal))
-    story.append(Spacer(1, 6))
+    story.append(Spacer(1, 3))
     
     # 1. Pelaksanaan
     story.append(Paragraph("1. Pelaksanaan :", style_heading))
@@ -449,10 +448,10 @@ def buat_pdf_laporan(df_db, tgl_target):
         ["Malam dilakukan pengukuran oleh", ":", petugas_ns],
     ]
     
-    t_pel = Table(pel_data, colWidths=[5.8*cm, 0.4*cm, 10.5*cm])
+    t_pel = Table(pel_data, colWidths=[5.5*cm, 0.4*cm, 10.5*cm])
     t_pel.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 0), (-1, -1), 11),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('TOPPADDING', (0, 0), (-1, -1), 1),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
@@ -467,24 +466,24 @@ def buat_pdf_laporan(df_db, tgl_target):
     # 3. Titik Pengukuran
     story.append(Paragraph("3. Titik Pengukuran", style_heading))
     story.append(Paragraph("Titik monitoring dilakukan di luar area GPF, penentuan titik pemantauan berdasarkan 4 arah mata angin serta kawasan permukiman terdekat:", style_normal))
-    story.append(Spacer(1, 4))
+    story.append(Spacer(1, 2))
     
     header_titik = ["No.", "Kode", "Lokasi", "Latitude", "Longitude", "Latitude NS", "Longitude NS"]
     data_titik = [header_titik]
     for i, (kode, info) in enumerate(titik_data.items(), 1):
         data_titik.append([str(i), kode, info["Lokasi"], info["Lat"], info["Long"], info["LatNS"], info["LongNS"]])
     
-    t_titik = Table(data_titik, colWidths=[1.1*cm, 1.6*cm, 4.2*cm, 2.6*cm, 2.6*cm, 2.6*cm, 2.6*cm])
+    t_titik = Table(data_titik, colWidths=[1.0*cm, 1.5*cm, 4.0*cm, 2.5*cm, 2.5*cm, 2.5*cm, 2.5*cm])
     t_titik.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0288D1')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-        ('TOPPADDING', (0, 0), (-1, -1), 3),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ('GRID', (0, 0), (-1, -1), 0.6, colors.black),
+        ('TOPPADDING', (0, 0), (-1, -1), 2),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
     ]))
     story.append(t_titik)
     
@@ -494,7 +493,7 @@ def buat_pdf_laporan(df_db, tgl_target):
     
     def buat_tabel_hasil(df_shift, judul):
         elems = [Paragraph(f"<b>{judul}</b>", style_small)]
-        header = ["No.", "Kode", "Lokasi", "Waktu", "H₂S (ppm)", "O₂ (%)", "CO (ppm)", "LEL (%)", "SO₂ (ppm)"]
+        header = ["No.", "Kode", "Lokasi", "Waktu", "H2S (ppm)", "O2 (%)", "CO (ppm)", "LEL (%)", "SO2 (ppm)"]
         data = [header]
         for i, (kode, info) in enumerate(titik_data.items(), 1):
             match = df_shift[df_shift["Kode_Titik"] == kode] if not df_shift.empty else pd.DataFrame()
@@ -508,7 +507,7 @@ def buat_pdf_laporan(df_db, tgl_target):
                 row = [str(i), kode, info["Lokasi"], "-", "0", "0", "0", "0", "0"]
             data.append(row)
         
-        t = Table(data, colWidths=[0.9*cm, 1.4*cm, 3.6*cm, 1.9*cm, 1.9*cm, 1.6*cm, 1.7*cm, 1.6*cm, 1.8*cm])
+        t = Table(data, colWidths=[0.8*cm, 1.3*cm, 3.5*cm, 1.8*cm, 1.8*cm, 1.5*cm, 1.6*cm, 1.5*cm, 1.7*cm])
         t.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0288D1')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
@@ -516,7 +515,7 @@ def buat_pdf_laporan(df_db, tgl_target):
             ('FONTSIZE', (0, 0), (-1, -1), 8),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('GRID', (0, 0), (-1, -1), 0.6, colors.black),
             ('TOPPADDING', (0, 0), (-1, -1), 2),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
         ]))
@@ -526,9 +525,9 @@ def buat_pdf_laporan(df_db, tgl_target):
     df_day = df_hari[df_hari["Shift"] == "Day Shift"] if not df_hari.empty else pd.DataFrame()
     df_night = df_hari[df_hari["Shift"] == "Night Shift"] if not df_hari.empty else pd.DataFrame()
     
-    story.append(Spacer(1, 4))
+    story.append(Spacer(1, 2))
     story.extend(buat_tabel_hasil(df_day, "Day Shift"))
-    story.append(Spacer(1, 6))
+    story.append(Spacer(1, 3))
     story.extend(buat_tabel_hasil(df_night, "Night Shift"))
     
     # 5. Dokumentasi Day Shift
@@ -554,7 +553,7 @@ def buat_pdf_laporan(df_db, tgl_target):
         
         if path_foto and os.path.exists(str(path_foto)):
             try:
-                img = Image(str(path_foto), width=9*cm, height=6.5*cm)
+                img = Image(str(path_foto), width=11*cm, height=7.5*cm)
                 img.hAlign = 'CENTER'
                 content = [[Paragraph(caption, style_caption)], [img]]
             except:
@@ -565,16 +564,17 @@ def buat_pdf_laporan(df_db, tgl_target):
         t_foto = Table(content, colWidths=[16*cm])
         t_foto.setStyle(TableStyle([
             ('BOX', (0, 0), (-1, -1), 0.8, colors.black),
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F5F5F5')),
+            ('LINEBELOW', (0, 0), (-1, 0), 0.5, colors.black),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F8F8F8')),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('TOPPADDING', (0, 0), (-1, -1), 5),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
         ]))
         story.append(t_foto)
-        story.append(Spacer(1, 8))
+        story.append(Spacer(1, 5))
     
-    # 6. Dokumentasi Night Shift + Peta
+    # 6. Dokumentasi Night Shift
     story.append(PageBreak())
     
     path_peta1 = os.path.join(FOLDER_PETA, "peta_1.jpg")
@@ -583,7 +583,7 @@ def buat_pdf_laporan(df_db, tgl_target):
             img_peta = Image(path_peta1, width=16*cm, height=9*cm)
             img_peta.hAlign = 'CENTER'
             story.append(img_peta)
-            story.append(Spacer(1, 6))
+            story.append(Spacer(1, 3))
         except:
             pass
     
@@ -608,7 +608,7 @@ def buat_pdf_laporan(df_db, tgl_target):
         
         if path_foto and os.path.exists(str(path_foto)):
             try:
-                img = Image(str(path_foto), width=9*cm, height=6.5*cm)
+                img = Image(str(path_foto), width=11*cm, height=7.5*cm)
                 img.hAlign = 'CENTER'
                 content = [[Paragraph(caption, style_caption)], [img]]
             except:
@@ -619,14 +619,15 @@ def buat_pdf_laporan(df_db, tgl_target):
         t_foto = Table(content, colWidths=[16*cm])
         t_foto.setStyle(TableStyle([
             ('BOX', (0, 0), (-1, -1), 0.8, colors.black),
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F5F5F5')),
+            ('LINEBELOW', (0, 0), (-1, 0), 0.5, colors.black),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F8F8F8')),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('TOPPADDING', (0, 0), (-1, -1), 5),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
         ]))
         story.append(t_foto)
-        story.append(Spacer(1, 8))
+        story.append(Spacer(1, 5))
     
     path_peta2 = os.path.join(FOLDER_PETA, "peta_2.jpg")
     if os.path.exists(path_peta2):
@@ -643,12 +644,12 @@ def buat_pdf_laporan(df_db, tgl_target):
     
     peng = load_pengaturan_laporan()
     story.append(Paragraph(peng["Kesimpulan"], style_normal))
-    story.append(Spacer(1, 12))
+    story.append(Spacer(1, 4))
     
-    story.append(Paragraph(f"Bojonegoro, {tgl_target.day} {bulan_list[tgl_target.month]} {tgl_target.year}", style_center))
-    story.append(Spacer(1, 16))
+    story.append(Paragraph(f"Bojonegoro, {tgl_target.day} {bulan_list[tgl_target.month]} {tgl_target.year}", style_left))
+    story.append(Spacer(1, 6))
     
-    # Tanda tangan mirip contoh resmi
+    # Tanda tangan - kotak kosong
     ttd_data = [
         ["Dilaporkan oleh", "", "Diperiksa oleh", "Disetujui Oleh"],
         ["Day Shift", "Night Shift", "", ""],
@@ -659,21 +660,23 @@ def buat_pdf_laporan(df_db, tgl_target):
         ["", "", peng["Jabatan_Diperiksa"], peng["Jabatan_Disetujui"]],
     ]
     
-    t_ttd = Table(ttd_data, colWidths=[4.3*cm, 4.3*cm, 4.3*cm, 4.3*cm])
+    t_ttd = Table(ttd_data, colWidths=[4.2*cm, 4.2*cm, 4.2*cm, 4.2*cm])
     t_ttd.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('FONTNAME', (0, 1), (1, 1), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 0), (-1, -1), 9),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('GRID', (0, 0), (-1, -1), 0.7, colors.black),
+        ('BOX', (0, 0), (-1, -1), 0.8, colors.black),
+        ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.black),
         ('SPAN', (0, 0), (1, 0)),
         ('TOPPADDING', (0, 0), (-1, -1), 4),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
     ]))
     story.append(t_ttd)
     
-    doc.build(story)
+    # Build dengan header logo di semua halaman
+    doc.build(story, onFirstPage=add_header_logo, onLaterPages=add_header_logo)
     buffer.seek(0)
     return buffer.getvalue()
 
@@ -767,9 +770,9 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         
         with tab3:
-            st.caption("Generate PDF Laporan Resmi (format mirip contoh perusahaan)")
+            st.caption("Generate PDF Laporan Resmi")
             tgl_pdf = st.date_input("Pilih Tanggal untuk PDF", datetime.now(), key="tgl_pdf")
-            st.info("Pastikan sudah upload foto, peta, dan mengisi nama pejabat + kesimpulan di Kelola User.")
+            st.info("Pastikan sudah upload foto, peta, dan mengisi nama pejabat + kesimpulan di Master Data.")
             
             if st.button("Generate PDF Laporan", type="primary"):
                 with st.spinner("Sedang membuat PDF..."):
@@ -861,7 +864,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
     elif pilihan_menu == "5. Kelola Master Data":
         st.markdown("### 5. Kelola Master Data")
         
-        tab1, tab2, tab3 = st.tabs(["Kelola Titik Pantau", "Kelola Daftar Alat", "Upload Peta Laporan"])
+        tab1, tab2, tab3, tab4 = st.tabs(["Kelola Titik Pantau", "Kelola Daftar Alat", "Upload Peta Laporan", "Nama Pejabat & Kesimpulan"])
         
         with tab1:
             st.markdown("#### Daftar Titik Pantau Saat Ini")
@@ -1037,59 +1040,8 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
                 elif os.path.exists(os.path.join(FOLDER_PETA, "peta_2.jpg")):
                     st.image(os.path.join(FOLDER_PETA, "peta_2.jpg"), width=250)
                     st.caption("Peta 2 sudah ada")
-    
-    elif pilihan_menu == "6. Kelola User":
-        if username != "admin":
-            st.warning("Anda tidak memiliki akses ke menu ini.")
-            return
         
-        st.markdown("### 6. Kelola User & Pengaturan Laporan")
-        
-        tab_user, tab_pejabat = st.tabs(["Kelola User", "Nama Pejabat & Kesimpulan"])
-        
-        with tab_user:
-            df_user = pd.read_excel(FILE_USER)
-            st.dataframe(df_user, use_container_width=True)
-            
-            st.markdown("---")
-            with st.form("form_user"):
-                username_in = st.text_input("Username")
-                password = st.text_input("Password")
-                nama = st.text_input("Nama Tampilan")
-                
-                c1, c2 = st.columns(2)
-                with c1:
-                    simpan = st.form_submit_button("Tambah / Update User", type="primary")
-                with c2:
-                    hapus = st.form_submit_button("Hapus User")
-                
-                if simpan:
-                    if not username_in.strip() or not password.strip() or not nama.strip():
-                        st.error("Semua field wajib diisi")
-                    else:
-                        if username_in.strip() in df_user["Username"].values:
-                            df_user.loc[df_user["Username"]==username_in.strip(), ["Password","Nama"]] = [password, nama]
-                            st.success("User diperbarui")
-                        else:
-                            baru = pd.DataFrame([{"Username": username_in.strip(), "Password": password, "Nama": nama}])
-                            df_user = pd.concat([df_user, baru], ignore_index=True)
-                            st.success("User ditambahkan")
-                        df_user.to_excel(FILE_USER, index=False)
-                        st.rerun()
-                
-                if hapus:
-                    if username_in.strip() in df_user["Username"].values:
-                        if username_in.strip() == "admin":
-                            st.error("User admin tidak boleh dihapus")
-                        else:
-                            df_user = df_user[df_user["Username"] != username_in.strip()]
-                            df_user.to_excel(FILE_USER, index=False)
-                            st.success("User dihapus")
-                            st.rerun()
-                    else:
-                        st.warning("Username tidak ditemukan")
-        
-        with tab_pejabat:
+        with tab4:
             st.markdown("#### Pengaturan Nama Pejabat & Kesimpulan Laporan PDF")
             st.caption("Nama Day Shift & Night Shift diambil otomatis dari data input.")
             
@@ -1118,3 +1070,51 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
                     df_simpan.to_excel(FILE_PENGATURAN, index=False)
                     st.success("Pengaturan berhasil disimpan!")
                     st.rerun()
+    
+    elif pilihan_menu == "6. Kelola User":
+        if username != "admin":
+            st.warning("Anda tidak memiliki akses ke menu ini.")
+            return
+        
+        st.markdown("### 6. Kelola User & Password")
+        
+        df_user = pd.read_excel(FILE_USER)
+        st.dataframe(df_user, use_container_width=True)
+        
+        st.markdown("---")
+        with st.form("form_user"):
+            username_in = st.text_input("Username")
+            password = st.text_input("Password")
+            nama = st.text_input("Nama Tampilan")
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                simpan = st.form_submit_button("Tambah / Update User", type="primary")
+            with c2:
+                hapus = st.form_submit_button("Hapus User")
+            
+            if simpan:
+                if not username_in.strip() or not password.strip() or not nama.strip():
+                    st.error("Semua field wajib diisi")
+                else:
+                    if username_in.strip() in df_user["Username"].values:
+                        df_user.loc[df_user["Username"]==username_in.strip(), ["Password","Nama"]] = [password, nama]
+                        st.success("User diperbarui")
+                    else:
+                        baru = pd.DataFrame([{"Username": username_in.strip(), "Password": password, "Nama": nama}])
+                        df_user = pd.concat([df_user, baru], ignore_index=True)
+                        st.success("User ditambahkan")
+                    df_user.to_excel(FILE_USER, index=False)
+                    st.rerun()
+            
+            if hapus:
+                if username_in.strip() in df_user["Username"].values:
+                    if username_in.strip() == "admin":
+                        st.error("User admin tidak boleh dihapus")
+                    else:
+                        df_user = df_user[df_user["Username"] != username_in.strip()]
+                        df_user.to_excel(FILE_USER, index=False)
+                        st.success("User dihapus")
+                        st.rerun()
+                else:
+                    st.warning("Username tidak ditemukan")
