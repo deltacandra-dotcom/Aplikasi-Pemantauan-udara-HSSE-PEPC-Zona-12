@@ -11,9 +11,8 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak, KeepTogether
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
-from reportlab.pdfgen import canvas
 
 FILE_DB = "database_monitoring_jtb.xlsx"
 FILE_ALAT = "database_inspeksi_alat.xlsx"
@@ -22,6 +21,7 @@ FILE_MASTER_ALAT = "master_daftar_alat.xlsx"
 FILE_USER = "master_users.xlsx"
 FILE_PENGATURAN = "pengaturan_laporan.xlsx"
 FOLDER_PETA = "peta_monitoring"
+FOLDER_TTD = "tanda_tangan"
 
 DEFAULT_TITIK = {
     "TP 1": {"Lokasi": "Pemukiman Ngasem", "Lat": "-7.1234", "Long": "111.6789", "LatNS": "-7.1234", "LongNS": "111.6789"},
@@ -89,26 +89,20 @@ def load_pengaturan_laporan():
     return default
 
 def add_header_logo(canvas, doc):
-    """Menambahkan logo di header setiap halaman"""
     canvas.saveState()
-    
     logo_skk = "logo_skkmigas.png"
     logo_pepc = "logo_pertamina_epcepu.png"
     
-    # Logo kiri (SKK Migas)
     if os.path.exists(logo_skk):
         try:
             canvas.drawImage(logo_skk, 1.8*cm, A4[1] - 1.8*cm, width=2.6*cm, height=1.0*cm, mask='auto')
         except:
             pass
-    
-    # Logo kanan (Pertamina)
     if os.path.exists(logo_pepc):
         try:
             canvas.drawImage(logo_pepc, A4[0] - 1.8*cm - 3.0*cm, A4[1] - 1.8*cm, width=3.0*cm, height=1.0*cm, mask='auto')
         except:
             pass
-    
     canvas.restoreState()
 
 def buat_excel_harian_resmi(df_db_all, tgl_target):
@@ -553,7 +547,7 @@ def buat_pdf_laporan(df_db, tgl_target):
         
         if path_foto and os.path.exists(str(path_foto)):
             try:
-                img = Image(str(path_foto), width=11*cm, height=7.5*cm)
+                img = Image(str(path_foto), width=9*cm, height=12*cm)
                 img.hAlign = 'CENTER'
                 content = [[Paragraph(caption, style_caption)], [img]]
             except:
@@ -568,11 +562,11 @@ def buat_pdf_laporan(df_db, tgl_target):
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F8F8F8')),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('TOPPADDING', (0, 0), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 3),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
         ]))
         story.append(t_foto)
-        story.append(Spacer(1, 5))
+        story.append(Spacer(1, 3))
     
     # 6. Dokumentasi Night Shift
     story.append(PageBreak())
@@ -580,10 +574,10 @@ def buat_pdf_laporan(df_db, tgl_target):
     path_peta1 = os.path.join(FOLDER_PETA, "peta_1.jpg")
     if os.path.exists(path_peta1):
         try:
-            img_peta = Image(path_peta1, width=16*cm, height=9*cm)
+            img_peta = Image(path_peta1, width=16*cm, height=10*cm)
             img_peta.hAlign = 'CENTER'
             story.append(img_peta)
-            story.append(Spacer(1, 3))
+            story.append(Spacer(1, 2))
         except:
             pass
     
@@ -608,7 +602,7 @@ def buat_pdf_laporan(df_db, tgl_target):
         
         if path_foto and os.path.exists(str(path_foto)):
             try:
-                img = Image(str(path_foto), width=11*cm, height=7.5*cm)
+                img = Image(str(path_foto), width=9*cm, height=12*cm)
                 img.hAlign = 'CENTER'
                 content = [[Paragraph(caption, style_caption)], [img]]
             except:
@@ -623,23 +617,23 @@ def buat_pdf_laporan(df_db, tgl_target):
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F8F8F8')),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('TOPPADDING', (0, 0), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 3),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
         ]))
         story.append(t_foto)
-        story.append(Spacer(1, 5))
+        story.append(Spacer(1, 3))
     
     path_peta2 = os.path.join(FOLDER_PETA, "peta_2.jpg")
     if os.path.exists(path_peta2):
         try:
-            img_peta2 = Image(path_peta2, width=16*cm, height=9*cm)
+            img_peta2 = Image(path_peta2, width=16*cm, height=10*cm)
             img_peta2.hAlign = 'CENTER'
             story.append(img_peta2)
         except:
             pass
     
     # 7. Kesimpulan + Tanda Tangan
-    story.append(PageBreak())
+    story.append(Spacer(1, 8))
     story.append(Paragraph("7. Kesimpulan :", style_heading))
     
     peng = load_pengaturan_laporan()
@@ -649,33 +643,58 @@ def buat_pdf_laporan(df_db, tgl_target):
     story.append(Paragraph(f"Bojonegoro, {tgl_target.day} {bulan_list[tgl_target.month]} {tgl_target.year}", style_left))
     story.append(Spacer(1, 6))
     
-    # Tanda tangan - kotak kosong
+    ttd_ds = os.path.join(FOLDER_TTD, "ttd_day.png")
+    ttd_ns = os.path.join(FOLDER_TTD, "ttd_night.png")
+    ttd_diperiksa = os.path.join(FOLDER_TTD, "ttd_diperiksa.png")
+    ttd_disetujui = os.path.join(FOLDER_TTD, "ttd_disetujui.png")
+    
+    def get_ttd_img(path):
+        if os.path.exists(path):
+            try:
+                return Image(path, width=3.5*cm, height=2.2*cm)
+            except:
+                return ""
+        return ""
+    
+    img_ds = get_ttd_img(ttd_ds)
+    img_ns = get_ttd_img(ttd_ns)
+    img_dip = get_ttd_img(ttd_diperiksa)
+    img_dis = get_ttd_img(ttd_disetujui)
+    
+    # Tabel tanda tangan - nama + jabatan BOLD, garis horizontal bawah Day/Night & atas nama dihilangkan
     ttd_data = [
-        ["Dilaporkan oleh", "", "Diperiksa oleh", "Disetujui Oleh"],
-        ["Day Shift", "Night Shift", "", ""],
-        ["", "", "", ""],
-        ["", "", "", ""],
-        ["", "", "", ""],
-        [petugas_ds, petugas_ns, peng["Nama_Diperiksa"], peng["Nama_Disetujui"]],
-        ["", "", peng["Jabatan_Diperiksa"], peng["Jabatan_Disetujui"]],
+        [Paragraph("<b>Dilaporkan oleh</b>", style_center), "", 
+         Paragraph("<b>Diperiksa oleh</b>", style_center), 
+         Paragraph("<b>Disetujui Oleh</b>", style_center)],
+        [Paragraph("<b>Day Shift</b>", style_center), 
+         Paragraph("<b>Night Shift</b>", style_center), "", ""],
+        [img_ds if img_ds else "", img_ns if img_ns else "", 
+         img_dip if img_dip else "", img_dis if img_dis else ""],
+        [Paragraph(f"<b>{petugas_ds}</b><br/><b>Associate Environment Staff</b>", style_center),
+         Paragraph(f"<b>{petugas_ns}</b><br/><b>ERCM Staff</b>", style_center),
+         Paragraph(f"<b>{peng['Nama_Diperiksa']}</b><br/><b>{peng['Jabatan_Diperiksa']}</b>", style_center),
+         Paragraph(f"<b>{peng['Nama_Disetujui']}</b><br/><b>{peng['Jabatan_Disetujui']}</b>", style_center)],
     ]
     
     t_ttd = Table(ttd_data, colWidths=[4.2*cm, 4.2*cm, 4.2*cm, 4.2*cm])
     t_ttd.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTNAME', (0, 1), (1, 1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('BOX', (0, 0), (-1, -1), 0.8, colors.black),
-        ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.black),
+        ('LINEBELOW', (0, 0), (-1, 0), 0.5, colors.black),
+        ('LINEAFTER', (0, 0), (0, -1), 0.5, colors.black),
+        ('LINEAFTER', (1, 0), (1, -1), 0.5, colors.black),
+        ('LINEAFTER', (2, 0), (2, -1), 0.5, colors.black),
         ('SPAN', (0, 0), (1, 0)),
+        ('LINEBELOW', (0, 1), (1, 1), 0, colors.white),
+        ('LINEABOVE', (0, 3), (-1, 3), 0, colors.white),
         ('TOPPADDING', (0, 0), (-1, -1), 4),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
     ]))
     story.append(t_ttd)
     
-    # Build dengan header logo di semua halaman
     doc.build(story, onFirstPage=add_header_logo, onLaterPages=add_header_logo)
     buffer.seek(0)
     return buffer.getvalue()
@@ -772,7 +791,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
         with tab3:
             st.caption("Generate PDF Laporan Resmi")
             tgl_pdf = st.date_input("Pilih Tanggal untuk PDF", datetime.now(), key="tgl_pdf")
-            st.info("Pastikan sudah upload foto, peta, dan mengisi nama pejabat + kesimpulan di Master Data.")
+            st.info("Pastikan sudah upload foto, peta, tanda tangan, dan mengisi nama pejabat + kesimpulan di Master Data.")
             
             if st.button("Generate PDF Laporan", type="primary"):
                 with st.spinner("Sedang membuat PDF..."):
@@ -864,7 +883,10 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
     elif pilihan_menu == "5. Kelola Master Data":
         st.markdown("### 5. Kelola Master Data")
         
-        tab1, tab2, tab3, tab4 = st.tabs(["Kelola Titik Pantau", "Kelola Daftar Alat", "Upload Peta Laporan", "Nama Pejabat & Kesimpulan"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "Kelola Titik Pantau", "Kelola Daftar Alat", "Upload Peta Laporan", 
+            "Nama Pejabat & Kesimpulan", "Upload Tanda Tangan"
+        ])
         
         with tab1:
             st.markdown("#### Daftar Titik Pantau Saat Ini")
@@ -1070,6 +1092,62 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
                     df_simpan.to_excel(FILE_PENGATURAN, index=False)
                     st.success("Pengaturan berhasil disimpan!")
                     st.rerun()
+        
+        with tab5:
+            st.markdown("#### Upload Tanda Tangan untuk Laporan PDF")
+            st.caption("Upload 4 gambar tanda tangan (PNG/JPG). Gambar akan muncul di bagian tanda tangan laporan.")
+            
+            os.makedirs(FOLDER_TTD, exist_ok=True)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**Tanda Tangan Day Shift**")
+                ttd1 = st.file_uploader("Upload TTD Day Shift", type=["png", "jpg", "jpeg"], key="ttd_ds")
+                if ttd1:
+                    with open(os.path.join(FOLDER_TTD, "ttd_day.png"), "wb") as f:
+                        f.write(ttd1.getbuffer())
+                    st.image(ttd1, width=200)
+                    st.success("TTD Day Shift tersimpan")
+                elif os.path.exists(os.path.join(FOLDER_TTD, "ttd_day.png")):
+                    st.image(os.path.join(FOLDER_TTD, "ttd_day.png"), width=200)
+                    st.caption("Sudah ada")
+            
+            with col2:
+                st.markdown("**Tanda Tangan Night Shift**")
+                ttd2 = st.file_uploader("Upload TTD Night Shift", type=["png", "jpg", "jpeg"], key="ttd_ns")
+                if ttd2:
+                    with open(os.path.join(FOLDER_TTD, "ttd_night.png"), "wb") as f:
+                        f.write(ttd2.getbuffer())
+                    st.image(ttd2, width=200)
+                    st.success("TTD Night Shift tersimpan")
+                elif os.path.exists(os.path.join(FOLDER_TTD, "ttd_night.png")):
+                    st.image(os.path.join(FOLDER_TTD, "ttd_night.png"), width=200)
+                    st.caption("Sudah ada")
+            
+            col3, col4 = st.columns(2)
+            with col3:
+                st.markdown("**Tanda Tangan Diperiksa oleh**")
+                ttd3 = st.file_uploader("Upload TTD Diperiksa", type=["png", "jpg", "jpeg"], key="ttd_dip")
+                if ttd3:
+                    with open(os.path.join(FOLDER_TTD, "ttd_diperiksa.png"), "wb") as f:
+                        f.write(ttd3.getbuffer())
+                    st.image(ttd3, width=200)
+                    st.success("TTD Diperiksa tersimpan")
+                elif os.path.exists(os.path.join(FOLDER_TTD, "ttd_diperiksa.png")):
+                    st.image(os.path.join(FOLDER_TTD, "ttd_diperiksa.png"), width=200)
+                    st.caption("Sudah ada")
+            
+            with col4:
+                st.markdown("**Tanda Tangan Disetujui oleh**")
+                ttd4 = st.file_uploader("Upload TTD Disetujui", type=["png", "jpg", "jpeg"], key="ttd_dis")
+                if ttd4:
+                    with open(os.path.join(FOLDER_TTD, "ttd_disetujui.png"), "wb") as f:
+                        f.write(ttd4.getbuffer())
+                    st.image(ttd4, width=200)
+                    st.success("TTD Disetujui tersimpan")
+                elif os.path.exists(os.path.join(FOLDER_TTD, "ttd_disetujui.png")):
+                    st.image(os.path.join(FOLDER_TTD, "ttd_disetujui.png"), width=200)
+                    st.caption("Sudah ada")
     
     elif pilihan_menu == "6. Kelola User":
         if username != "admin":
