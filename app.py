@@ -348,7 +348,7 @@ if menu == "Dashboard":
     
     with c2:
         if ada_terpapar:
-            status_text = "TEROBAR"
+            status_text = "TERPAPAR"
             status_color = "#C62828"
             status_sub = "Perlu perhatian"
         else:
