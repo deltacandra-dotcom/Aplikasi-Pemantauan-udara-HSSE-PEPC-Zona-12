@@ -1,5 +1,36 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+.env
 .venv/
 venv/
-.env
+ENV/
+
+# Streamlit Secrets (PENTING)
+.streamlit/secrets.toml
+
+# Database & Master Data (JANGAN di-upload)
+*.xlsx
+*.xls
+*.csv
+database_*.xlsx
+master_*.xlsx
+pengaturan_*.xlsx
+
+# Folder data sensitif
+foto_monitoring/
+peta_monitoring/
+tanda_tangan/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
