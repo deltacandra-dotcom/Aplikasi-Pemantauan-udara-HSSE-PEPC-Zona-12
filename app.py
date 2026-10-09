@@ -12,7 +12,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-FILE_USER = "master_users.xlsx"
 FILE_DB = "database_monitoring_jtb.xlsx"
 FILE_ALAT = "database_inspeksi_alat.xlsx"
 
@@ -73,7 +72,7 @@ st.markdown("""
         font-weight: 700 !important;
         letter-spacing: -0.3px;
     }
-    h2, h3, h4 {
+    h2, h3, h4, h5 {
         color: #0D47A1 !important;
         font-weight: 600 !important;
     }
@@ -157,29 +156,34 @@ st.markdown("""
         border-bottom: 1px solid rgba(255,255,255,0.2);
     }
     
-    /* Kartu Dashboard */
+    /* Kartu Dashboard - Modern Pertamina */
     .metric-card {
-        background: white;
-        border-radius: 10px;
-        padding: 18px 16px;
+        background: linear-gradient(145deg, #FFFFFF 0%, #F8FAFC 100%);
+        border-radius: 14px;
+        padding: 20px 16px;
         border: 1px solid #E2E8F0;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        box-shadow: 0 4px 12px rgba(10, 61, 145, 0.08);
         text-align: center;
+        height: 100%;
     }
     .metric-label {
-        font-size: 13px;
+        font-size: 12px;
         color: #64748B;
-        font-weight: 500;
-        margin-bottom: 6px;
+        font-weight: 600;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
     }
     .metric-value {
-        font-size: 26px;
+        font-size: 28px;
         font-weight: 700;
         color: #0A3D91;
+        line-height: 1.1;
     }
     .metric-sub {
         font-size: 12px;
-        margin-top: 4px;
+        margin-top: 6px;
+        font-weight: 500;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -314,9 +318,10 @@ if menu == "Dashboard":
     st.markdown("### Dashboard Pemantauan")
     
     # Filter periode
-    col_f1, col_f2, col_f3 = st.columns([1.5, 1.5, 2])
+    st.markdown("##### Filter Periode")
+    col_f1, col_f2, col_f3 = st.columns([1.8, 1.5, 2])
     with col_f1:
-        mode_periode = st.radio("Periode", ["Harian", "Bulanan", "Tahunan"], horizontal=True, key="mode_dash")
+        mode_periode = st.radio("Pilih Periode", ["Harian", "Bulanan", "Tahunan"], horizontal=True, key="mode_dash")
     with col_f2:
         if mode_periode == "Harian":
             tgl_dash = st.date_input("Tanggal", datetime.now(), key="tgl_dash")
@@ -354,7 +359,7 @@ if menu == "Dashboard":
             df_filter = df_db[df_db["Tanggal_dt"].dt.year == thn_dash].copy()
             label_periode = f"Tahun {thn_dash}"
     
-    st.caption(f"Data periode: **{label_periode}**")
+    st.caption(f"Menampilkan data periode: **{label_periode}**")
     
     # Hitung statistik
     total_data = len(df_filter)
@@ -366,7 +371,6 @@ if menu == "Dashboard":
     pct_terpapar = (jml_terpapar / total_data * 100) if total_data > 0 else 0
     pct_o2 = (jml_o2 / total_data * 100) if total_data > 0 else 0
     
-    # Hitung deteksi gas
     jml_h2s = 0
     jml_so2 = 0
     if not df_filter.empty:
@@ -377,7 +381,6 @@ if menu == "Dashboard":
     
     titik_sudah = df_filter["Kode_Titik"].nunique() if not df_filter.empty and "Kode_Titik" in df_filter.columns else 0
     
-    # Alat siap pakai (tetap dari data terkini)
     dari_file = pd.read_excel("master_daftar_alat.xlsx") if os.path.exists("master_daftar_alat.xlsx") else pd.DataFrame({"Nama_Alat": ["Gas Detector 1","Gas Detector 2","SO2 Detector 1","SO2 Detector 2"]})
     total_alat = len(dari_file)
     siap = 0
@@ -421,13 +424,13 @@ if menu == "Dashboard":
     with c4:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-label">O₂ Tidak Normal</div>
+            <div class="metric-label">O2 Tidak Normal</div>
             <div class="metric-value" style="color:#E65100;">{jml_o2}</div>
             <div class="metric-sub" style="color:#E65100;">{pct_o2:.1f}%</div>
         </div>
         """, unsafe_allow_html=True)
     
-    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
     
     # Kartu statistik gas + alat
     c5, c6, c7, c8 = st.columns(4)
@@ -435,7 +438,7 @@ if menu == "Dashboard":
     with c5:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-label">H₂S Terdeteksi</div>
+            <div class="metric-label">H2S Terdeteksi</div>
             <div class="metric-value">{jml_h2s}</div>
             <div class="metric-sub" style="color:#64748B;">kali</div>
         </div>
@@ -444,7 +447,7 @@ if menu == "Dashboard":
     with c6:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-label">SO₂ Terdeteksi</div>
+            <div class="metric-label">SO2 Terdeteksi</div>
             <div class="metric-value">{jml_so2}</div>
             <div class="metric-sub" style="color:#64748B;">kali</div>
         </div>
@@ -494,7 +497,7 @@ if menu == "Dashboard":
             st.info("Belum ada data inspeksi alat.")
     
     st.markdown("---")
-    st.caption("Data Realtime Sistem Pemantauan Udara Sesaat")
+    st.caption("Data Realtime Sistem Pemantauan Udara Sesaat • PEPC Zona 12")
 
 elif menu == "Input Data":
     tampilkan_halaman_input(st.session_state.nama_user)
