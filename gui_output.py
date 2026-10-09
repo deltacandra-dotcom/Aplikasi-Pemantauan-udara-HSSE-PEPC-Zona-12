@@ -410,7 +410,6 @@ def ambil_foto(df_shift, kode, tgl_str, shift_folder):
                 path2 = candidate
                 break
     return path1, path2
-
 def buat_pdf_laporan(df_db, tgl_target):
     buffer = BytesIO()
     doc = SimpleDocTemplate(
@@ -580,7 +579,7 @@ def buat_pdf_laporan(df_db, tgl_target):
         for p in [path1, path2]:
             if p and os.path.exists(p):
                 try:
-                    img = Image(p, width=5.08*cm, height=3.76*cm)
+                    img = Image(p, width=3.95*cm, height=5.29*cm)
                     img_cells.append(img)
                 except:
                     img_cells.append(Paragraph("[Foto error]", style_center))
@@ -615,14 +614,15 @@ def buat_pdf_laporan(df_db, tgl_target):
     path_peta1 = os.path.join(FOLDER_PETA, "peta_1.jpg")
     if os.path.exists(path_peta1):
         try:
-            img_peta = Image(path_peta1, width=16*cm, height=10*cm)
+            img_peta = Image(path_peta1, width=16*cm, height=9*cm)
             img_peta.hAlign = 'CENTER'
             story.append(img_peta)
-            story.append(Spacer(1, 2))
+            story.append(Spacer(1, 4))
         except:
             pass
     
     story.append(Paragraph("6. Dokumentasi, pemantauan Night Shift", style_heading))
+    story.append(Spacer(1, 2))
     
     for kode, info in titik_data.items():
         match = df_night[df_night["Kode_Titik"] == kode] if not df_night.empty else pd.DataFrame()
@@ -635,7 +635,7 @@ def buat_pdf_laporan(df_db, tgl_target):
         for p in [path1, path2]:
             if p and os.path.exists(p):
                 try:
-                    img = Image(p, width=5.08*cm, height=3.76*cm)
+                    img = Image(p, width=3.95*cm, height=5.29*cm)
                     img_cells.append(img)
                 except:
                     img_cells.append(Paragraph("[Foto error]", style_center))
@@ -667,7 +667,7 @@ def buat_pdf_laporan(df_db, tgl_target):
     path_peta2 = os.path.join(FOLDER_PETA, "peta_2.jpg")
     if os.path.exists(path_peta2):
         try:
-            img_peta2 = Image(path_peta2, width=16*cm, height=10*cm)
+            img_peta2 = Image(path_peta2, width=16*cm, height=9*cm)
             img_peta2.hAlign = 'CENTER'
             story.append(img_peta2)
         except:
@@ -763,7 +763,6 @@ def buat_pdf_laporan(df_db, tgl_target):
     doc.build(story, onFirstPage=add_header_logo, onLaterPages=add_header_logo)
     buffer.seek(0)
     return buffer.getvalue()
-
 def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
     titik_data = load_titik()
     daftar_alat = load_daftar_alat()
