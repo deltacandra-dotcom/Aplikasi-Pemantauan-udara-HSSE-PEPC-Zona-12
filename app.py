@@ -216,14 +216,12 @@ if not st.session_state.logged_in:
             
             if submit:
                 try:
-                    # Ambil password dari Streamlit Secrets (lebih aman)
                     users = st.secrets["users"]
                     
                     if username.strip() in users and users[username.strip()] == password:
                         st.session_state.logged_in = True
                         st.session_state.username = username.strip()
                         
-                        # Nama tampilan
                         if username.strip() == "admin":
                             st.session_state.nama_user = "Admin"
                         elif username.strip() == "delta":
@@ -314,18 +312,72 @@ menu = st.session_state.menu
 
 if menu == "Dashboard":
     st.markdown("### Dashboard Pemantauan")
-    st.caption(f"Data kondisi hari ini • {datetime.now().strftime('%d %B %Y')}")
+    
+    # Filter periode
+    col_f1, col_f2, col_f3 = st.columns([1.5, 1.5, 2])
+    with col_f1:
+        mode_periode = st.radio("Periode", ["Harian", "Bulanan", "Tahunan"], horizontal=True, key="mode_dash")
+    with col_f2:
+        if mode_periode == "Harian":
+            tgl_dash = st.date_input("Tanggal", datetime.now(), key="tgl_dash")
+        elif mode_periode == "Bulanan":
+            bln_dash = st.selectbox("Bulan", 
+                ["Januari","Februari","Maret","April","Mei","Juni",
+                 "Juli","Agustus","September","Oktober","November","Desember"],
+                index=datetime.now().month-1, key="bln_dash")
+            thn_dash = st.number_input("Tahun", 2024, 2030, datetime.now().year, key="thn_bln")
+        else:
+            thn_dash = st.number_input("Tahun", 2024, 2030, datetime.now().year, key="thn_thn")
     
     df_db = pd.read_excel(FILE_DB) if os.path.exists(FILE_DB) else pd.DataFrame()
     df_alat = pd.read_excel(FILE_ALAT) if os.path.exists(FILE_ALAT) else pd.DataFrame()
     
-    hari_ini = datetime.now().strftime("%Y-%m-%d")
-    df_hari = df_db[df_db["Tanggal"] == hari_ini] if not df_db.empty else pd.DataFrame()
+    # Filter data sesuai periode
+    df_filter = pd.DataFrame()
+    label_periode = ""
     
-    total_data = len(df_hari)
-    ada_terpapar = "Terpapar" in df_hari["Status"].values if not df_hari.empty else False
-    titik_sudah = df_hari["Kode_Titik"].nunique() if not df_hari.empty else 0
+    if not df_db.empty and "Tanggal" in df_db.columns:
+        df_db["Tanggal_dt"] = pd.to_datetime(df_db["Tanggal"], errors="coerce")
+        
+        if mode_periode == "Harian":
+            tgl_str = tgl_dash.strftime("%Y-%m-%d")
+            df_filter = df_db[df_db["Tanggal"] == tgl_str].copy()
+            label_periode = tgl_dash.strftime("%d %B %Y")
+        elif mode_periode == "Bulanan":
+            bulan_map = {"Januari":1,"Februari":2,"Maret":3,"April":4,"Mei":5,"Juni":6,
+                         "Juli":7,"Agustus":8,"September":9,"Oktober":10,"November":11,"Desember":12}
+            bln_angka = bulan_map.get(bln_dash, datetime.now().month)
+            df_filter = df_db[(df_db["Tanggal_dt"].dt.month == bln_angka) & 
+                              (df_db["Tanggal_dt"].dt.year == thn_dash)].copy()
+            label_periode = f"{bln_dash} {thn_dash}"
+        else:
+            df_filter = df_db[df_db["Tanggal_dt"].dt.year == thn_dash].copy()
+            label_periode = f"Tahun {thn_dash}"
     
+    st.caption(f"Data periode: **{label_periode}**")
+    
+    # Hitung statistik
+    total_data = len(df_filter)
+    jml_aman = len(df_filter[df_filter["Status"] == "Aman"]) if not df_filter.empty else 0
+    jml_terpapar = len(df_filter[df_filter["Status"] == "Terpapar"]) if not df_filter.empty else 0
+    jml_o2 = len(df_filter[df_filter["Status"] == "O2 Tidak Normal"]) if not df_filter.empty else 0
+    
+    pct_aman = (jml_aman / total_data * 100) if total_data > 0 else 0
+    pct_terpapar = (jml_terpapar / total_data * 100) if total_data > 0 else 0
+    pct_o2 = (jml_o2 / total_data * 100) if total_data > 0 else 0
+    
+    # Hitung deteksi gas
+    jml_h2s = 0
+    jml_so2 = 0
+    if not df_filter.empty:
+        if "H2S" in df_filter.columns:
+            jml_h2s = len(df_filter[df_filter["H2S"] > 0])
+        if "SO2" in df_filter.columns:
+            jml_so2 = len(df_filter[df_filter["SO2"] > 0])
+    
+    titik_sudah = df_filter["Kode_Titik"].nunique() if not df_filter.empty and "Kode_Titik" in df_filter.columns else 0
+    
+    # Alat siap pakai (tetap dari data terkini)
     dari_file = pd.read_excel("master_daftar_alat.xlsx") if os.path.exists("master_daftar_alat.xlsx") else pd.DataFrame({"Nama_Alat": ["Gas Detector 1","Gas Detector 2","SO2 Detector 1","SO2 Detector 2"]})
     total_alat = len(dari_file)
     siap = 0
@@ -335,36 +387,70 @@ if menu == "Dashboard":
             if len(last) > 0 and last.iloc[0]["Status"] == "Siap Pakai":
                 siap += 1
     
+    # Kartu metrik utama
     c1, c2, c3, c4 = st.columns(4)
     
     with c1:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-label">Data Hari Ini</div>
+            <div class="metric-label">Total Data</div>
             <div class="metric-value">{total_data}</div>
-            <div class="metric-sub" style="color:#64748B;">data tercatat</div>
+            <div class="metric-sub" style="color:#64748B;">pengukuran</div>
         </div>
         """, unsafe_allow_html=True)
     
     with c2:
-        if ada_terpapar:
-            status_text = "TERPAPAR"
-            status_color = "#C62828"
-            status_sub = "Perlu perhatian"
-        else:
-            status_text = "AMAN"
-            status_color = "#2E7D32"
-            status_sub = "Kondisi normal"
-        
+        warna_aman = "#2E7D32" if pct_aman >= 90 else "#F9A825" if pct_aman >= 70 else "#C62828"
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-label">Status</div>
-            <div class="metric-value" style="color:{status_color};">{status_text}</div>
-            <div class="metric-sub" style="color:{status_color};">{status_sub}</div>
+            <div class="metric-label">Status Aman</div>
+            <div class="metric-value" style="color:{warna_aman};">{jml_aman}</div>
+            <div class="metric-sub" style="color:{warna_aman};">{pct_aman:.1f}%</div>
         </div>
         """, unsafe_allow_html=True)
     
     with c3:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Terpapar</div>
+            <div class="metric-value" style="color:#C62828;">{jml_terpapar}</div>
+            <div class="metric-sub" style="color:#C62828;">{pct_terpapar:.1f}%</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with c4:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">O₂ Tidak Normal</div>
+            <div class="metric-value" style="color:#E65100;">{jml_o2}</div>
+            <div class="metric-sub" style="color:#E65100;">{pct_o2:.1f}%</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    
+    # Kartu statistik gas + alat
+    c5, c6, c7, c8 = st.columns(4)
+    
+    with c5:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">H₂S Terdeteksi</div>
+            <div class="metric-value">{jml_h2s}</div>
+            <div class="metric-sub" style="color:#64748B;">kali</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with c6:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">SO₂ Terdeteksi</div>
+            <div class="metric-value">{jml_so2}</div>
+            <div class="metric-sub" style="color:#64748B;">kali</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with c7:
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-label">Titik Terukur</div>
@@ -373,7 +459,7 @@ if menu == "Dashboard":
         </div>
         """, unsafe_allow_html=True)
     
-    with c4:
+    with c8:
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-label">Alat Siap Pakai</div>
@@ -384,21 +470,19 @@ if menu == "Dashboard":
     
     st.markdown("<div style='height:22px'></div>", unsafe_allow_html=True)
     
+    # Tabel data + status alat
     col_kiri, col_kanan = st.columns(2)
     
     with col_kiri:
-        st.markdown("#### Data Pemantauan Hari Ini")
-        if not df_hari.empty:
-            st.dataframe(
-                df_hari[["Waktu", "Shift", "Kode_Titik", "Lokasi", "H2S", "O2", "SO2", "Status"]],
-                use_container_width=True,
-                hide_index=True
-            )
+        st.markdown(f"#### Data Pemantauan ({label_periode})")
+        if not df_filter.empty:
+            kolom_tampil = [c for c in ["Waktu", "Shift", "Kode_Titik", "Lokasi", "H2S", "O2", "SO2", "Status"] if c in df_filter.columns]
+            st.dataframe(df_filter[kolom_tampil], use_container_width=True, hide_index=True)
         else:
-            st.info("Belum ada data pemantauan hari ini.")
+            st.info("Belum ada data pada periode ini.")
     
     with col_kanan:
-        st.markdown("#### Status Alat")
+        st.markdown("#### Status Alat (Terkini)")
         if not df_alat.empty:
             status_terakhir = df_alat.sort_values("Tanggal_Inspeksi").groupby("Nama_Alat").tail(1)
             st.dataframe(
