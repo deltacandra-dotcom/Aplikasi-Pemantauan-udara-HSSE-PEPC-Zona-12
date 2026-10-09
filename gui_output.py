@@ -20,6 +20,7 @@ FILE_TITIK = "master_titik_pantau.xlsx"
 FILE_MASTER_ALAT = "master_daftar_alat.xlsx"
 FILE_USER = "master_users.xlsx"
 FILE_PENGATURAN = "pengaturan_laporan.xlsx"
+FILE_KESIMPULAN = "master_kesimpulan.xlsx"
 FOLDER_PETA = "peta_monitoring"
 FOLDER_TTD = "tanda_tangan"
 
@@ -33,6 +34,13 @@ DEFAULT_TITIK = {
 }
 
 DEFAULT_ALAT = ["Gas Detector 1", "Gas Detector 2", "SO2 Detector 1", "SO2 Detector 2"]
+
+DEFAULT_KESIMPULAN = [
+    "Tidak terdeteksi adanya Gas H2S dan SO2 di seluruh lokasi pemantauan",
+    "Terdeteksi Gas H2S di bawah baku mutu",
+    "Terdeteksi Gas SO2, perlu investigasi lanjutan",
+    "Terdeteksi Gas H2S dan SO2, segera tindak lanjut"
+]
 
 def load_titik():
     if os.path.exists(FILE_TITIK):
@@ -371,6 +379,38 @@ def buat_excel_bulanan(df_db_all, bulan_target, tahun_target):
     wb.save(bio)
     return bio.getvalue()
 
+def ambil_foto(df_shift, kode, tgl_str, shift_folder):
+    path1, path2 = None, None
+    match = df_shift[df_shift["Kode_Titik"] == kode] if not df_shift.empty else pd.DataFrame()
+    
+    if len(match) > 0:
+        if "Path_Foto" in match.columns:
+            p1 = match.iloc[0].get("Path_Foto", "")
+            if p1 and os.path.exists(str(p1)):
+                path1 = str(p1)
+        if "Path_Foto2" in match.columns:
+            p2 = match.iloc[0].get("Path_Foto2", "")
+            if p2 and os.path.exists(str(p2)):
+                path2 = str(p2)
+    
+    folder = f"foto_monitoring/{tgl_str}/{shift_folder}"
+    if not path1:
+        for ext in ["jpg", "jpeg", "png"]:
+            for nomor in ["_1", ""]:
+                candidate = f"{folder}/{kode.replace(' ', '_')}{nomor}.{ext}"
+                if os.path.exists(candidate):
+                    path1 = candidate
+                    break
+            if path1:
+                break
+    if not path2:
+        for ext in ["jpg", "jpeg", "png"]:
+            candidate = f"{folder}/{kode.replace(' ', '_')}_2.{ext}"
+            if os.path.exists(candidate):
+                path2 = candidate
+                break
+    return path1, path2
+
 def buat_pdf_laporan(df_db, tgl_target):
     buffer = BytesIO()
     doc = SimpleDocTemplate(
@@ -384,13 +424,14 @@ def buat_pdf_laporan(df_db, tgl_target):
     style_subtitle = ParagraphStyle('Subtitle', parent=styles['Normal'], fontSize=11, alignment=TA_CENTER, spaceAfter=3, fontName='Helvetica-Bold')
     style_heading = ParagraphStyle('HeadingCustom', parent=styles['Heading2'], fontSize=11, spaceBefore=5, spaceAfter=2, fontName='Helvetica-Bold')
     style_normal = ParagraphStyle('NormalCustom', parent=styles['Normal'], fontSize=10, leading=12, alignment=TA_JUSTIFY, fontName='Helvetica')
-    style_small = ParagraphStyle('Small', parent=styles['Normal'], fontSize=9, leading=11, alignment=TA_LEFT)
+    style_small = ParagraphStyle('Small', parent=styles['Normal'], fontSize=8, leading=10, alignment=TA_LEFT, fontName='Helvetica')
     style_center = ParagraphStyle('Center', parent=styles['Normal'], fontSize=10, alignment=TA_CENTER)
     style_left = ParagraphStyle('Left', parent=styles['Normal'], fontSize=10, alignment=TA_LEFT)
     style_caption = ParagraphStyle('Caption', parent=styles['Normal'], fontSize=9, leading=11, alignment=TA_CENTER, fontName='Helvetica')
     
     story = []
     titik_data = load_titik()
+    tgl_str = tgl_target.strftime("%Y-%m-%d")
     
     story.append(Spacer(1, 3))
     story.append(Paragraph("LAPORAN PEMANTAUAN UDARA SESAAT", style_title))
@@ -404,7 +445,7 @@ def buat_pdf_laporan(df_db, tgl_target):
     # 1. Pelaksanaan
     story.append(Paragraph("1. Pelaksanaan :", style_heading))
     
-    df_hari = df_db[df_db["Tanggal"] == tgl_target.strftime("%Y-%m-%d")].copy() if not df_db.empty else pd.DataFrame()
+    df_hari = df_db[df_db["Tanggal"] == tgl_str].copy() if not df_db.empty else pd.DataFrame()
     
     petugas_ds = "-"
     petugas_ns = "-"
@@ -429,10 +470,10 @@ def buat_pdf_laporan(df_db, tgl_target):
     
     hari_list = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
     bulan_list = ["", "Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
-    tgl_str = f"{hari_list[tgl_target.weekday()]}, {tgl_target.day} {bulan_list[tgl_target.month]} {tgl_target.year}"
+    tgl_label = f"{hari_list[tgl_target.weekday()]}, {tgl_target.day} {bulan_list[tgl_target.month]} {tgl_target.year}"
     
     pel_data = [
-        ["Hari, Tanggal", ":", tgl_str],
+        ["Hari, Tanggal", ":", tgl_label],
         ["Jam", ":", f"Day Shift {jam_ds_awal} WIB s/d {jam_ds_akhir} WIB"],
         ["", "", f"Night Shift {jam_ns_awal} WIB s/d {jam_ns_akhir} WIB"],
         ["Tempat", ":", "Luar Area GPF"],
@@ -533,31 +574,31 @@ def buat_pdf_laporan(df_db, tgl_target):
         waktu = str(match.iloc[0]["Waktu"]) if len(match) > 0 else "..."
         caption = f"Pemantauan di {kode} ({info['Lokasi']}) pukul {waktu} WIB"
         
-        path_foto = None
-        if len(match) > 0 and "Path_Foto" in match.columns:
-            path_foto = match.iloc[0].get("Path_Foto", "")
+        path1, path2 = ambil_foto(df_day, kode, tgl_str, "Day_Shift")
         
-        if not path_foto or not os.path.exists(str(path_foto)):
-            folder = f"foto_monitoring/{tgl_target.strftime('%Y-%m-%d')}/Day_Shift"
-            for ext in ["jpg", "jpeg", "png"]:
-                candidate = f"{folder}/{kode.replace(' ', '_')}.{ext}"
-                if os.path.exists(candidate):
-                    path_foto = candidate
-                    break
+        img_cells = []
+        for p in [path1, path2]:
+            if p and os.path.exists(p):
+                try:
+                    img = Image(p, width=5.08*cm, height=3.76*cm)
+                    img_cells.append(img)
+                except:
+                    img_cells.append(Paragraph("[Foto error]", style_center))
+            else:
+                img_cells.append(Paragraph("", style_center))
         
-        if path_foto and os.path.exists(str(path_foto)):
-            try:
-                img = Image(str(path_foto), width=9*cm, height=12*cm)
-                img.hAlign = 'CENTER'
-                content = [[Paragraph(caption, style_caption)], [img]]
-            except:
-                content = [[Paragraph(caption, style_caption)], [Paragraph("[Foto tidak dapat dimuat]", style_center)]]
-        else:
-            content = [[Paragraph(caption, style_caption)], [Paragraph("[Belum ada foto]", style_center)]]
+        while len(img_cells) < 2:
+            img_cells.append("")
         
-        t_foto = Table(content, colWidths=[16*cm])
+        content = [
+            [Paragraph(caption, style_caption), ""],
+            img_cells
+        ]
+        
+        t_foto = Table(content, colWidths=[8.2*cm, 8.2*cm])
         t_foto.setStyle(TableStyle([
             ('BOX', (0, 0), (-1, -1), 0.8, colors.black),
+            ('SPAN', (0, 0), (-1, 0)),
             ('LINEBELOW', (0, 0), (-1, 0), 0.5, colors.black),
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F8F8F8')),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
@@ -588,31 +629,31 @@ def buat_pdf_laporan(df_db, tgl_target):
         waktu = str(match.iloc[0]["Waktu"]) if len(match) > 0 else "..."
         caption = f"Pemantauan di {kode} ({info['Lokasi']}) pukul {waktu} WIB"
         
-        path_foto = None
-        if len(match) > 0 and "Path_Foto" in match.columns:
-            path_foto = match.iloc[0].get("Path_Foto", "")
+        path1, path2 = ambil_foto(df_night, kode, tgl_str, "Night_Shift")
         
-        if not path_foto or not os.path.exists(str(path_foto)):
-            folder = f"foto_monitoring/{tgl_target.strftime('%Y-%m-%d')}/Night_Shift"
-            for ext in ["jpg", "jpeg", "png"]:
-                candidate = f"{folder}/{kode.replace(' ', '_')}.{ext}"
-                if os.path.exists(candidate):
-                    path_foto = candidate
-                    break
+        img_cells = []
+        for p in [path1, path2]:
+            if p and os.path.exists(p):
+                try:
+                    img = Image(p, width=5.08*cm, height=3.76*cm)
+                    img_cells.append(img)
+                except:
+                    img_cells.append(Paragraph("[Foto error]", style_center))
+            else:
+                img_cells.append(Paragraph("", style_center))
         
-        if path_foto and os.path.exists(str(path_foto)):
-            try:
-                img = Image(str(path_foto), width=9*cm, height=12*cm)
-                img.hAlign = 'CENTER'
-                content = [[Paragraph(caption, style_caption)], [img]]
-            except:
-                content = [[Paragraph(caption, style_caption)], [Paragraph("[Foto tidak dapat dimuat]", style_center)]]
-        else:
-            content = [[Paragraph(caption, style_caption)], [Paragraph("[Belum ada foto]", style_center)]]
+        while len(img_cells) < 2:
+            img_cells.append("")
         
-        t_foto = Table(content, colWidths=[16*cm])
+        content = [
+            [Paragraph(caption, style_caption), ""],
+            img_cells
+        ]
+        
+        t_foto = Table(content, colWidths=[8.2*cm, 8.2*cm])
         t_foto.setStyle(TableStyle([
             ('BOX', (0, 0), (-1, -1), 0.8, colors.black),
+            ('SPAN', (0, 0), (-1, 0)),
             ('LINEBELOW', (0, 0), (-1, 0), 0.5, colors.black),
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F8F8F8')),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
@@ -637,7 +678,13 @@ def buat_pdf_laporan(df_db, tgl_target):
     story.append(Paragraph("7. Kesimpulan :", style_heading))
     
     peng = load_pengaturan_laporan()
-    story.append(Paragraph(peng["Kesimpulan"], style_normal))
+    kesimpulan_hari = peng["Kesimpulan"]
+    if not df_hari.empty and "Kesimpulan" in df_hari.columns:
+        kes_list = [x for x in df_hari["Kesimpulan"].dropna().tolist() if str(x).strip()]
+        if kes_list:
+            kesimpulan_hari = str(kes_list[-1])
+    
+    story.append(Paragraph(kesimpulan_hari, style_normal))
     story.append(Spacer(1, 4))
     
     story.append(Paragraph(f"Bojonegoro, {tgl_target.day} {bulan_list[tgl_target.month]} {tgl_target.year}", style_left))
@@ -661,7 +708,6 @@ def buat_pdf_laporan(df_db, tgl_target):
     img_dip = get_ttd_img(ttd_diperiksa)
     img_dis = get_ttd_img(ttd_disetujui)
     
-    # Tabel tanda tangan - nama + jabatan BOLD, garis horizontal bawah Day/Night & atas nama dihilangkan
     ttd_data = [
         [Paragraph("<b>Dilaporkan oleh</b>", style_center), "", 
          Paragraph("<b>Diperiksa oleh</b>", style_center), 
@@ -695,6 +741,25 @@ def buat_pdf_laporan(df_db, tgl_target):
     ]))
     story.append(t_ttd)
     
+    # Keterangan di bawah tanda tangan
+    story.append(Spacer(1, 10))
+    story.append(Paragraph("<i>Keterangan:</i>", style_small))
+    story.append(Paragraph(
+        "1. Nilai Ambang Batas <b>H2S</b> sebesar <b>1 ppm</b> mengacu pada Peraturan Menteri Ketenagakerjaan Nomor 5 Tahun 2018 Tentang Keselamatan dan Kesehatan Kerja Lingkungan Kerja",
+        style_small))
+    story.append(Paragraph(
+        "2. Rentang nilai ketersediaan <b>oksigen</b> di udara sebesar <b>19,5% – 23,5%</b> mengacu pada Peraturan Menteri Ketenagakerjaan Nomor 5 Tahun 2018 Tentang Keselamatan dan Kesehatan Kerja Lingkungan Kerja",
+        style_small))
+    story.append(Paragraph(
+        "3. Baku Mutu <b>CO</b> sebesar <b>8,72 ppm</b> mengacu pada Peraturan Pemerintah (PP) Nomor 22 Tahun 2021 tentang Penyelenggaraan Perlindungan dan Pengelolaan Lingkungan Hidup",
+        style_small))
+    story.append(Paragraph(
+        "4. Baku Mutu <b>SO2</b> sebesar <b>0,057 ppm</b> mengacu pada Peraturan Pemerintah (PP) Nomor 22 Tahun 2021 tentang Penyelenggaraan Perlindungan dan Pengelolaan Lingkungan Hidup",
+        style_small))
+    story.append(Paragraph(
+        "5. Baku Tingkat <b>Kebisingan</b> sebesar <b>55 dB</b> untuk Kawasan Perumahan dan Pemukiman mengacu pada Keputusan Menteri Negara Lingkungan Hidup Nomor 48 Tahun 1996",
+        style_small))
+    
     doc.build(story, onFirstPage=add_header_logo, onLaterPages=add_header_logo)
     buffer.seek(0)
     return buffer.getvalue()
@@ -720,7 +785,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
         with c3:
             cari_tp = st.selectbox("Titik", ["Semua"] + list(titik_data.keys()))
         with c4:
-            cari_status = st.selectbox("Status", ["Semua", "Aman", "Terpapar"])
+            cari_status = st.selectbox("Status", ["Semua", "Aman", "Terpapar", "O2 Tidak Normal"])
         
         df_hasil = df_db[df_db["Tanggal"] == cari_tgl.strftime("%Y-%m-%d")].copy()
         if cari_shift != "Semua":
@@ -733,11 +798,18 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
         if not df_hasil.empty:
             if "Terpapar" in df_hasil["Status"].values:
                 st.error("TERDETEKSI PAPARAN GAS")
+            elif "O2 Tidak Normal" in df_hasil["Status"].values:
+                st.warning("ADA DATA DENGAN O2 TIDAK NORMAL")
             else:
                 st.success("SEMUA TITIK AMAN")
             
             def style_row(row):
-                return ['background-color:#FFEBEE' if row.Status=='Terpapar' else 'background-color:#E8F5E9' for _ in row]
+                if row.Status == "Terpapar":
+                    return ['background-color:#FFEBEE'] * len(row)
+                elif row.Status == "O2 Tidak Normal":
+                    return ['background-color:#FFF3E0'] * len(row)
+                else:
+                    return ['background-color:#E8F5E9'] * len(row)
             
             st.dataframe(df_hasil.style.apply(style_row, axis=1), use_container_width=True)
             
@@ -883,9 +955,9 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
     elif pilihan_menu == "5. Kelola Master Data":
         st.markdown("### 5. Kelola Master Data")
         
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
             "Kelola Titik Pantau", "Kelola Daftar Alat", "Upload Peta Laporan", 
-            "Nama Pejabat & Kesimpulan", "Upload Tanda Tangan"
+            "Nama Pejabat & Kesimpulan", "Upload Tanda Tangan", "Kelola Kesimpulan"
         ])
         
         with tab1:
@@ -1064,8 +1136,8 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
                     st.caption("Peta 2 sudah ada")
         
         with tab4:
-            st.markdown("#### Pengaturan Nama Pejabat & Kesimpulan Laporan PDF")
-            st.caption("Nama Day Shift & Night Shift diambil otomatis dari data input.")
+            st.markdown("#### Pengaturan Nama Pejabat & Kesimpulan Default Laporan PDF")
+            st.caption("Nama Day Shift & Night Shift diambil otomatis dari data input. Kesimpulan default dipakai jika tidak ada kesimpulan dari input data.")
             
             peng = load_pengaturan_laporan()
             
@@ -1079,7 +1151,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
                     jabatan_disetujui = st.text_input("Jabatan Disetujui oleh", value=peng["Jabatan_Disetujui"])
                 
                 st.markdown("---")
-                kesimpulan = st.text_area("Teks Kesimpulan Laporan", value=peng["Kesimpulan"], height=100)
+                kesimpulan = st.text_area("Teks Kesimpulan Default Laporan", value=peng["Kesimpulan"], height=100)
                 
                 if st.form_submit_button("Simpan Pengaturan", type="primary"):
                     df_simpan = pd.DataFrame([{
@@ -1148,6 +1220,64 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
                 elif os.path.exists(os.path.join(FOLDER_TTD, "ttd_disetujui.png")):
                     st.image(os.path.join(FOLDER_TTD, "ttd_disetujui.png"), width=200)
                     st.caption("Sudah ada")
+        
+        with tab6:
+            st.markdown("#### Kelola Opsi Kesimpulan")
+            st.caption("Opsi kesimpulan yang dibuat di sini akan muncul di Form Input Data (Pilih Kesimpulan).")
+            
+            if os.path.exists(FILE_KESIMPULAN):
+                df_kes = pd.read_excel(FILE_KESIMPULAN)
+            else:
+                df_kes = pd.DataFrame({"Kesimpulan": DEFAULT_KESIMPULAN})
+                df_kes.to_excel(FILE_KESIMPULAN, index=False)
+            
+            st.dataframe(df_kes, use_container_width=True, hide_index=True)
+            
+            st.markdown("---")
+            mode_kes = st.radio("Pilih Aksi", ["Tambah Kesimpulan", "Update Kesimpulan", "Hapus Kesimpulan"], horizontal=True, key="mode_kes")
+            
+            with st.form("form_kesimpulan"):
+                if mode_kes == "Tambah Kesimpulan":
+                    teks_kes = st.text_area("Teks Kesimpulan Baru *", height=80)
+                    idx_pilih = None
+                elif mode_kes == "Update Kesimpulan":
+                    list_kes = df_kes["Kesimpulan"].tolist() if not df_kes.empty else []
+                    idx_pilih = st.selectbox("Pilih kesimpulan yang ingin diubah *", range(len(list_kes)), format_func=lambda i: list_kes[i] if list_kes else "")
+                    teks_kes = st.text_area("Teks Baru *", value=list_kes[idx_pilih] if list_kes else "", height=80)
+                else:
+                    list_kes = df_kes["Kesimpulan"].tolist() if not df_kes.empty else []
+                    idx_pilih = st.selectbox("Pilih kesimpulan yang ingin dihapus *", range(len(list_kes)), format_func=lambda i: list_kes[i] if list_kes else "")
+                    teks_kes = ""
+                    if list_kes:
+                        st.warning(f"Kesimpulan berikut akan dihapus:\n\n**{list_kes[idx_pilih]}**")
+                
+                submitted_kes = st.form_submit_button("Simpan Perubahan", type="primary", use_container_width=True)
+                
+                if submitted_kes:
+                    if mode_kes == "Tambah Kesimpulan":
+                        if not teks_kes.strip():
+                            st.error("Teks kesimpulan wajib diisi!")
+                        else:
+                            df_kes = pd.concat([df_kes, pd.DataFrame([{"Kesimpulan": teks_kes.strip()}])], ignore_index=True)
+                            df_kes.to_excel(FILE_KESIMPULAN, index=False)
+                            st.success("Kesimpulan berhasil ditambahkan!")
+                            st.rerun()
+                    elif mode_kes == "Update Kesimpulan":
+                        if not teks_kes.strip():
+                            st.error("Teks baru wajib diisi!")
+                        else:
+                            df_kes.at[idx_pilih, "Kesimpulan"] = teks_kes.strip()
+                            df_kes.to_excel(FILE_KESIMPULAN, index=False)
+                            st.success("Kesimpulan berhasil diperbarui!")
+                            st.rerun()
+                    elif mode_kes == "Hapus Kesimpulan":
+                        if len(df_kes) <= 1:
+                            st.error("Minimal harus ada 1 kesimpulan.")
+                        else:
+                            df_kes = df_kes.drop(idx_pilih).reset_index(drop=True)
+                            df_kes.to_excel(FILE_KESIMPULAN, index=False)
+                            st.success("Kesimpulan berhasil dihapus!")
+                            st.rerun()
     
     elif pilihan_menu == "6. Kelola User":
         if username != "admin":
@@ -1156,8 +1286,16 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
         
         st.markdown("### 6. Kelola User & Password")
         
-        df_user = pd.read_excel(FILE_USER)
-        st.dataframe(df_user, use_container_width=True)
+        if not os.path.exists(FILE_USER):
+            df_user = pd.DataFrame([
+                {"Username": "delta", "Password": "1234", "Nama": "Delta Candra"},
+                {"Username": "admin", "Password": "admin123", "Nama": "Admin"}
+            ])
+            df_user.to_excel(FILE_USER, index=False)
+        else:
+            df_user = pd.read_excel(FILE_USER)
+        
+        st.dataframe(df_user, use_container_width=True, hide_index=True)
         
         st.markdown("---")
         with st.form("form_user"):

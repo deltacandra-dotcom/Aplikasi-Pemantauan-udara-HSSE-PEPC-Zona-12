@@ -7,6 +7,7 @@ import pytz
 
 FILE_DB = "database_monitoring_jtb.xlsx"
 FILE_TITIK = "master_titik_pantau.xlsx"
+FILE_KESIMPULAN = "master_kesimpulan.xlsx"
 FOLDER_FOTO = "foto_monitoring"
 
 DEFAULT_TITIK = {
@@ -17,6 +18,13 @@ DEFAULT_TITIK = {
     "TP 5": {"Lokasi": "Selatan Dormitory", "Lat": "-7.1278", "Long": "111.6823", "LatNS": "-7.1279", "LongNS": "111.6825"},
     "TP 6": {"Lokasi": "Dusun Besaran Ngasem", "Lat": "-7.1289", "Long": "111.6834", "LatNS": "-7.1290", "LongNS": "111.6836"}
 }
+
+DEFAULT_KESIMPULAN = [
+    "Tidak terdeteksi adanya Gas H2S dan SO2 di seluruh lokasi pemantauan",
+    "Terdeteksi Gas H2S di bawah baku mutu",
+    "Terdeteksi Gas SO2, perlu investigasi lanjutan",
+    "Terdeteksi Gas H2S dan SO2, segera tindak lanjut"
+]
 
 def load_titik():
     if os.path.exists(FILE_TITIK):
@@ -42,7 +50,15 @@ def load_titik():
         pd.DataFrame(data).to_excel(FILE_TITIK, index=False)
         return DEFAULT_TITIK
 
-def simpan_foto(uploaded_file, tanggal, shift, kode_titik):
+def load_kesimpulan():
+    if os.path.exists(FILE_KESIMPULAN):
+        df = pd.read_excel(FILE_KESIMPULAN)
+        return df["Kesimpulan"].tolist()
+    else:
+        pd.DataFrame({"Kesimpulan": DEFAULT_KESIMPULAN}).to_excel(FILE_KESIMPULAN, index=False)
+        return DEFAULT_KESIMPULAN
+
+def simpan_foto(uploaded_file, tanggal, shift, kode_titik, nomor=1):
     if uploaded_file is None:
         return None
     
@@ -53,7 +69,7 @@ def simpan_foto(uploaded_file, tanggal, shift, kode_titik):
     if ekstensi not in ["jpg", "jpeg", "png"]:
         ekstensi = "jpg"
     
-    nama_file = f"{kode_titik.replace(' ', '_')}.{ekstensi}"
+    nama_file = f"{kode_titik.replace(' ', '_')}_{nomor}.{ekstensi}"
     path_lengkap = folder_path / nama_file
     
     with open(path_lengkap, "wb") as f:
@@ -63,10 +79,11 @@ def simpan_foto(uploaded_file, tanggal, shift, kode_titik):
 
 def tampilkan_halaman_input(nama_user=""):
     st.markdown("### 1. Form Registrasi Data Udara Sesaat")
-    st.caption("Silahkan isi data di bawah ini. Field bertanda * wajib diisi. Noise dan Keterangan bersifat opsional.")
+    st.caption("Silahkan isi data di bawah ini. Field bertanda * wajib diisi. Noise bersifat opsional.")
 
     titik_data = load_titik()
     list_kode = list(titik_data.keys())
+    list_kesimpulan = load_kesimpulan()
 
     col_kiri, _, col_kanan = st.columns([2, 0.2, 2])
 
@@ -87,7 +104,6 @@ def tampilkan_halaman_input(nama_user=""):
             help="Pilih shift sesuai waktu pengukuran"
         )
         
-        # Waktu otomatis WIB (penting untuk Streamlit Cloud)
         tz_wib = pytz.timezone("Asia/Jakarta")
         jam_sekarang = datetime.now(tz_wib).strftime("%H:%M")
         
@@ -115,32 +131,34 @@ def tampilkan_halaman_input(nama_user=""):
     with col_kanan:
         st.markdown("#### Hasil Deteksi Alat")
         
-        h2s = st.number_input("Gas H₂S (ppm) *", min_value=0.0, value=None, step=0.1, format="%.2f", placeholder="Contoh: 0.00", help="Wajib diisi. Nilai 0 jika tidak terdeteksi.")
-        o2 = st.number_input("Gas O₂ (%) *", min_value=0.0, value=None, step=0.1, format="%.1f", placeholder="19.5 – 23.5", help="Rentang normal: 19.5 – 23.5 %. Wajib diisi.")
+        h2s = st.number_input("Gas H2S (ppm) *", min_value=0.0, value=None, step=0.1, format="%.2f", placeholder="Contoh: 0.00", help="Wajib diisi. Nilai 0 jika tidak terdeteksi.")
+        o2 = st.number_input("Gas O2 (%) *", min_value=0.0, value=None, step=0.1, format="%.1f", placeholder="19.5 – 23.5", help="Rentang normal: 19.5 – 23.5 %. Tetap bisa disimpan jika di luar range (akan diberi peringatan).")
         co = st.number_input("Gas CO (ppm) *", min_value=0.0, value=None, step=0.1, format="%.1f", placeholder="Contoh: 0.0", help="Wajib diisi.")
         lel = st.number_input("Gas LEL (%) *", min_value=0.0, value=None, step=0.1, format="%.1f", placeholder="Contoh: 0.0", help="Wajib diisi.")
-        so2 = st.number_input("Gas SO₂ (ppm) *", min_value=0.0, value=None, step=0.1, format="%.2f", placeholder="Contoh: 0.00", help="Wajib diisi. Nilai 0 jika tidak terdeteksi.")
-        noise = st.number_input("Noise Level (dB(A))", min_value=0.0, value=None, step=0.1, format="%.1f", placeholder="Opsional", help="Tidak wajib diisi.")
+        so2 = st.number_input("Gas SO2 (ppm) *", min_value=0.0, value=None, step=0.1, format="%.2f", placeholder="Contoh: 0.00", help="Wajib diisi. Nilai 0 jika tidak terdeteksi.")
+        noise = st.number_input("Noise Level / Kebisingan (dB(A))", min_value=0.0, value=None, step=0.1, format="%.1f", placeholder="Opsional", help="Tidak wajib diisi.")
 
     st.markdown("---")
     st.markdown("#### Dokumentasi Foto")
-    st.caption("Upload 1 foto alat di lokasi titik pantau. Foto ini wajib jika ingin generate PDF Laporan.")
+    st.caption("Upload 1–2 foto alat di lokasi titik pantau. Foto 1 wajib. Foto 2 opsional. Kedua foto akan muncul berdampingan di laporan PDF.")
     
-    foto_upload = st.file_uploader(
-        "Upload Foto Titik Pantau * (untuk laporan PDF)",
-        type=["jpg", "jpeg", "png"],
-        help="Foto deteksi alat di lokasi. Akan otomatis masuk ke laporan PDF sesuai tanggal & shift."
-    )
-    
-    if foto_upload:
-        st.image(foto_upload, caption=f"Preview: {tp_in} - {shift_in}", width=300)
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        foto1 = st.file_uploader("Foto 1 * (Wajib)", type=["jpg", "jpeg", "png"], key="foto1")
+        if foto1:
+            st.image(foto1, caption="Preview Foto 1", width=250)
+    with col_f2:
+        foto2 = st.file_uploader("Foto 2 (Opsional)", type=["jpg", "jpeg", "png"], key="foto2")
+        if foto2:
+            st.image(foto2, caption="Preview Foto 2", width=250)
 
     st.markdown("---")
-    keterangan_in = st.text_area(
-        "Keterangan (Opsional)",
-        placeholder="Tuliskan catatan tambahan jika diperlukan. Field ini hanya muncul di Dashboard & Review, tidak masuk Excel.",
-        height=80,
-        help="Tidak wajib diisi. Hanya untuk catatan internal."
+    
+    st.markdown("#### Kesimpulan")
+    kesimpulan_in = st.selectbox(
+        "Pilih Kesimpulan *",
+        options=list_kesimpulan,
+        help="Wajib dipilih. Satu hari hanya 1 kesimpulan yang dipakai (yang terakhir disimpan)."
     )
 
     st.markdown("---")
@@ -153,30 +171,42 @@ def tampilkan_halaman_input(nama_user=""):
         if not waktu_in.strip():
             kesalahan.append("Waktu Sampling")
         if h2s is None:
-            kesalahan.append("H₂S")
+            kesalahan.append("H2S")
         if o2 is None:
-            kesalahan.append("O₂")
-        elif o2 < 19.5 or o2 > 23.5:
-            kesalahan.append("O₂ (harus antara 19.5 – 23.5)")
+            kesalahan.append("O2")
         if co is None:
             kesalahan.append("CO")
         if lel is None:
             kesalahan.append("LEL")
         if so2 is None:
-            kesalahan.append("SO₂")
+            kesalahan.append("SO2")
+        if not kesimpulan_in:
+            kesalahan.append("Kesimpulan")
+        if foto1 is None:
+            kesalahan.append("Foto 1 (wajib)")
         
         if kesalahan:
             st.error(f"Masih ada data yang belum valid: **{', '.join(kesalahan)}**")
             return
         
-        path_foto = None
-        if foto_upload is not None:
-            path_foto = simpan_foto(foto_upload, tanggal_in.strftime("%Y-%m-%d"), shift_in, tp_in)
+        o2_tidak_normal = False
+        if o2 < 19.5 or o2 > 23.5:
+            o2_tidak_normal = True
+            st.warning(f"⚠️ **Peringatan Oksigen:** Nilai O2 ({o2}%) berada di luar rentang normal (19.5 – 23.5). Data tetap disimpan.")
         
-        status_gas = "Terpapar" if (h2s > 0.0 or so2 > 0.0) else "Aman"
+        tgl_str = tanggal_in.strftime("%Y-%m-%d")
+        path_foto1 = simpan_foto(foto1, tgl_str, shift_in, tp_in, nomor=1)
+        path_foto2 = simpan_foto(foto2, tgl_str, shift_in, tp_in, nomor=2) if foto2 is not None else ""
+        
+        if h2s > 0.0 or so2 > 0.0:
+            status_gas = "Terpapar"
+        elif o2_tidak_normal:
+            status_gas = "O2 Tidak Normal"
+        else:
+            status_gas = "Aman"
         
         data_baru = {
-            "Tanggal": [tanggal_in.strftime("%Y-%m-%d")],
+            "Tanggal": [tgl_str],
             "Bulan": [bulan_in],
             "Shift": [shift_in],
             "Waktu": [str(waktu_in)],
@@ -189,8 +219,9 @@ def tampilkan_halaman_input(nama_user=""):
             "LEL": [lel],
             "SO2": [so2],
             "Noise": [noise if noise is not None else None],
-            "Keterangan": [keterangan_in.strip() if keterangan_in else ""],
-            "Path_Foto": [path_foto if path_foto else ""],
+            "Kesimpulan": [kesimpulan_in],
+            "Path_Foto": [path_foto1 if path_foto1 else ""],
+            "Path_Foto2": [path_foto2 if path_foto2 else ""],
             "Status": [status_gas]
         }
         
@@ -198,18 +229,17 @@ def tampilkan_halaman_input(nama_user=""):
         
         if os.path.exists(FILE_DB):
             df_lama = pd.read_excel(FILE_DB)
-            if "Keterangan" not in df_lama.columns:
-                df_lama["Keterangan"] = ""
+            if "Kesimpulan" not in df_lama.columns:
+                df_lama["Kesimpulan"] = ""
             if "Path_Foto" not in df_lama.columns:
                 df_lama["Path_Foto"] = ""
+            if "Path_Foto2" not in df_lama.columns:
+                df_lama["Path_Foto2"] = ""
             df_total = pd.concat([df_lama, df_baru], ignore_index=True)
         else:
             df_total = df_baru
             
         df_total.to_excel(FILE_DB, index=False)
         
-        if path_foto:
-            st.success(f"Data berhasil disimpan! Foto tersimpan di: `{path_foto}`")
-        else:
-            st.success("Data berhasil disimpan! (Tanpa foto)")
+        st.success("✅ Data berhasil disimpan!")
         st.balloons()
