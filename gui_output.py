@@ -564,6 +564,55 @@ def buat_pdf_laporan(df_db, tgl_target):
     story.append(Spacer(1, 3))
     story.extend(buat_tabel_hasil(df_night, "Night Shift"))
     
+    # Helper buat tabel foto (tengah)
+    def buat_blok_foto(caption, path1, path2):
+        ada1 = path1 and os.path.exists(path1)
+        ada2 = path2 and os.path.exists(path2)
+        
+        if ada1 and ada2:
+            try:
+                img1 = Image(path1, width=3.95*cm, height=5.29*cm)
+            except:
+                img1 = Paragraph("[Foto error]", style_center)
+            try:
+                img2 = Image(path2, width=3.95*cm, height=5.29*cm)
+            except:
+                img2 = Paragraph("[Foto error]", style_center)
+            # tabel dalam agar 2 foto rapat di tengah
+            inner = Table([[img1, img2]], colWidths=[4.3*cm, 4.3*cm])
+            inner.setStyle(TableStyle([
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 3),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+            ]))
+            isi_foto = inner
+        elif ada1 or ada2:
+            p = path1 if ada1 else path2
+            try:
+                img = Image(p, width=3.95*cm, height=5.29*cm)
+            except:
+                img = Paragraph("[Foto error]", style_center)
+            isi_foto = img
+        else:
+            isi_foto = Paragraph("[Belum ada foto]", style_center)
+        
+        content = [
+            [Paragraph(caption, style_caption)],
+            [isi_foto]
+        ]
+        t = Table(content, colWidths=[16.4*cm])
+        t.setStyle(TableStyle([
+            ('BOX', (0, 0), (-1, -1), 0.8, colors.black),
+            ('LINEBELOW', (0, 0), (-1, 0), 0.5, colors.black),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F8F8F8')),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ]))
+        return t
+    
     # 5. Dokumentasi Day Shift
     story.append(PageBreak())
     story.append(Paragraph("5. Dokumentasi, Pemantauan Day Shift", style_heading))
@@ -572,40 +621,8 @@ def buat_pdf_laporan(df_db, tgl_target):
         match = df_day[df_day["Kode_Titik"] == kode] if not df_day.empty else pd.DataFrame()
         waktu = str(match.iloc[0]["Waktu"]) if len(match) > 0 else "..."
         caption = f"Pemantauan di {kode} ({info['Lokasi']}) pukul {waktu} WIB"
-        
         path1, path2 = ambil_foto(df_day, kode, tgl_str, "Day_Shift")
-        
-        img_cells = []
-        for p in [path1, path2]:
-            if p and os.path.exists(p):
-                try:
-                    img = Image(p, width=3.95*cm, height=5.29*cm)
-                    img_cells.append(img)
-                except:
-                    img_cells.append(Paragraph("[Foto error]", style_center))
-            else:
-                img_cells.append(Paragraph("", style_center))
-        
-        while len(img_cells) < 2:
-            img_cells.append("")
-        
-        content = [
-            [Paragraph(caption, style_caption), ""],
-            img_cells
-        ]
-        
-        t_foto = Table(content, colWidths=[8.2*cm, 8.2*cm])
-        t_foto.setStyle(TableStyle([
-            ('BOX', (0, 0), (-1, -1), 0.8, colors.black),
-            ('SPAN', (0, 0), (-1, 0)),
-            ('LINEBELOW', (0, 0), (-1, 0), 0.5, colors.black),
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F8F8F8')),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('TOPPADDING', (0, 0), (-1, -1), 3),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-        ]))
-        story.append(t_foto)
+        story.append(buat_blok_foto(caption, path1, path2))
         story.append(Spacer(1, 3))
     
     # 6. Dokumentasi Night Shift
@@ -614,7 +631,7 @@ def buat_pdf_laporan(df_db, tgl_target):
     path_peta1 = os.path.join(FOLDER_PETA, "peta_1.jpg")
     if os.path.exists(path_peta1):
         try:
-            img_peta = Image(path_peta1, width=16*cm, height=9*cm)
+            img_peta = Image(path_peta1, width=15.22*cm, height=7.41*cm)
             img_peta.hAlign = 'CENTER'
             story.append(img_peta)
             story.append(Spacer(1, 4))
@@ -628,46 +645,14 @@ def buat_pdf_laporan(df_db, tgl_target):
         match = df_night[df_night["Kode_Titik"] == kode] if not df_night.empty else pd.DataFrame()
         waktu = str(match.iloc[0]["Waktu"]) if len(match) > 0 else "..."
         caption = f"Pemantauan di {kode} ({info['Lokasi']}) pukul {waktu} WIB"
-        
         path1, path2 = ambil_foto(df_night, kode, tgl_str, "Night_Shift")
-        
-        img_cells = []
-        for p in [path1, path2]:
-            if p and os.path.exists(p):
-                try:
-                    img = Image(p, width=3.95*cm, height=5.29*cm)
-                    img_cells.append(img)
-                except:
-                    img_cells.append(Paragraph("[Foto error]", style_center))
-            else:
-                img_cells.append(Paragraph("", style_center))
-        
-        while len(img_cells) < 2:
-            img_cells.append("")
-        
-        content = [
-            [Paragraph(caption, style_caption), ""],
-            img_cells
-        ]
-        
-        t_foto = Table(content, colWidths=[8.2*cm, 8.2*cm])
-        t_foto.setStyle(TableStyle([
-            ('BOX', (0, 0), (-1, -1), 0.8, colors.black),
-            ('SPAN', (0, 0), (-1, 0)),
-            ('LINEBELOW', (0, 0), (-1, 0), 0.5, colors.black),
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F8F8F8')),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('TOPPADDING', (0, 0), (-1, -1), 3),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-        ]))
-        story.append(t_foto)
+        story.append(buat_blok_foto(caption, path1, path2))
         story.append(Spacer(1, 3))
     
     path_peta2 = os.path.join(FOLDER_PETA, "peta_2.jpg")
     if os.path.exists(path_peta2):
         try:
-            img_peta2 = Image(path_peta2, width=16*cm, height=9*cm)
+            img_peta2 = Image(path_peta2, width=15.22*cm, height=7.41*cm)
             img_peta2.hAlign = 'CENTER'
             story.append(img_peta2)
         except:
@@ -741,7 +726,6 @@ def buat_pdf_laporan(df_db, tgl_target):
     ]))
     story.append(t_ttd)
     
-    # Keterangan di bawah tanda tangan
     story.append(Spacer(1, 10))
     story.append(Paragraph("<i>Keterangan:</i>", style_small))
     story.append(Paragraph(
@@ -878,28 +862,35 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
                     except Exception as e:
                         st.error(f"Gagal membuat PDF: {e}")
     
-    elif pilihan_menu == "4. Inspeksi Alat":
-        st.markdown("### 4. Inspeksi & Status Kesiapan Alat")
+    # ===================== CEK KESIAPAN ALAT =====================
+    elif pilihan_menu == "4. Cek Kesiapan Alat":
+        st.markdown("### 4. Cek Kesiapan Alat")
+        st.caption("Centang indikator yang berfungsi normal. Jika ada yang bermasalah, biarkan kosong dan isi keterangan.")
         
         if os.path.exists(FILE_ALAT):
             df_alat = pd.read_excel(FILE_ALAT)
         else:
-            df_alat = pd.DataFrame(columns=["Nama_Alat","Tanggal_Inspeksi","Tanggal_Berikutnya","Sudah_Kalibrasi","Status","Petugas","Keterangan"])
+            df_alat = pd.DataFrame(columns=[
+                "Nama_Alat", "Tanggal_Inspeksi", "Tanggal_Berikutnya",
+                "Indikator", "Status", "Petugas", "Keterangan"
+            ])
         
+        # Auto update status kadaluarsa
         hari_ini = datetime.now().date()
         perlu_update = False
-        if not df_alat.empty:
+        if not df_alat.empty and "Tanggal_Berikutnya" in df_alat.columns:
             for idx, row in df_alat.iterrows():
                 try:
                     tgl_next = pd.to_datetime(row["Tanggal_Berikutnya"]).date()
                     if tgl_next < hari_ini and row["Status"] == "Siap Pakai":
-                        df_alat.at[idx, "Status"] = "Belum diinspeksi"
+                        df_alat.at[idx, "Status"] = "Belum dicek"
                         perlu_update = True
                 except:
                     pass
             if perlu_update:
                 df_alat.to_excel(FILE_ALAT, index=False)
         
+        # Status terkini
         st.markdown("#### Status Terkini")
         cols = st.columns(min(4, len(daftar_alat)) or 1)
         for i, nama in enumerate(daftar_alat):
@@ -910,46 +901,100 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
                     tgl = last.iloc[0]["Tanggal_Inspeksi"]
                     tgl_next = last.iloc[0].get("Tanggal_Berikutnya", "-")
                     if status == "Siap Pakai":
-                        st.success(f"**{nama}**\n\nSiap Pakai\n\n{tgl} → {tgl_next}")
-                    elif status == "Tidak Siap Pakai":
-                        st.error(f"**{nama}**\n\nTidak Siap\n\n{tgl}")
+                        st.success(f"**{nama}**\n\n✅ Siap Pakai\n\n{tgl} → {tgl_next}")
+                    elif status == "Tidak Siap":
+                        st.warning(f"**{nama}**\n\n⚠️ Tidak Siap\n\n{tgl}")
                     else:
-                        st.warning(f"**{nama}**\n\nBelum diinspeksi")
+                        st.error(f"**{nama}**\n\n❌ Belum dicek")
                 else:
-                    st.warning(f"**{nama}**\n\nBelum diinspeksi")
+                    st.warning(f"**{nama}**\n\nBelum dicek")
         
         st.markdown("---")
-        with st.form("form_inspeksi"):
-            alat = st.selectbox("Pilih Alat", daftar_alat)
-            tgl_insp = st.date_input("Tanggal Inspeksi", datetime.now())
-            interval = st.number_input("Interval (hari)", 1, 365, 30)
-            kalibrasi = st.radio("Sudah dikalibrasi?", ["Ya, sudah", "Belum"])
-            petugas = st.text_input("Petugas", value=nama_user)
-            ket = st.text_area("Keterangan")
+        st.markdown("#### Form Cek Kesiapan")
+        
+        with st.form("form_cek_kesiapan"):
+            alat = st.selectbox("Pilih Alat *", daftar_alat)
+            tgl_insp = st.date_input("Tanggal Cek *", datetime.now())
+            interval = st.number_input("Interval pengecekan berikutnya (hari) *", 1, 365, 30)
+            petugas = st.text_input("Petugas *", value=nama_user)
             
-            if st.form_submit_button("Simpan", type="primary"):
+            # Deteksi jenis alat
+            nama_lower = alat.lower() if alat else ""
+            if "so2" in nama_lower:
+                jenis = "SO2"
+            elif "noise" in nama_lower or "sound" in nama_lower or "kebisingan" in nama_lower:
+                jenis = "Noise"
+            else:
+                jenis = "Multiple"  # Gas Detector / Multiple
+            
+            st.markdown("**Checklist Indikator**")
+            st.caption("Centang jika indikator berfungsi normal.")
+            
+            chk_h2s = chk_co = chk_o2 = chk_lel = chk_so2 = chk_noise = True
+            
+            if jenis == "Multiple":
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    chk_h2s = st.checkbox("H2S OK", value=True)
+                with c2:
+                    chk_co = st.checkbox("CO OK", value=True)
+                with c3:
+                    chk_o2 = st.checkbox("O2 OK", value=True)
+                with c4:
+                    chk_lel = st.checkbox("LEL OK", value=True)
+                semua_ok = chk_h2s and chk_co and chk_o2 and chk_lel
+                indikator_str = f"H2S:{'Ya' if chk_h2s else 'Tidak'}, CO:{'Ya' if chk_co else 'Tidak'}, O2:{'Ya' if chk_o2 else 'Tidak'}, LEL:{'Ya' if chk_lel else 'Tidak'}"
+            
+            elif jenis == "SO2":
+                chk_so2 = st.checkbox("SO2 OK", value=True)
+                semua_ok = chk_so2
+                indikator_str = f"SO2:{'Ya' if chk_so2 else 'Tidak'}"
+            
+            else:  # Noise
+                chk_noise = st.checkbox("Noise / Sound Level Meter OK", value=True)
+                semua_ok = chk_noise
+                indikator_str = f"Noise:{'Ya' if chk_noise else 'Tidak'}"
+            
+            if semua_ok:
+                st.success("Semua indikator OK → Status akan **Siap Pakai**")
+                ket = st.text_area("Keterangan (opsional)")
+            else:
+                st.warning("Ada indikator tidak dicentang → Status akan **Tidak Siap** (kuning). Keterangan **wajib** diisi.")
+                ket = st.text_area("Keterangan * (wajib)", placeholder="Contoh: Indikator CO sedang bermasalah / sensor rusak")
+            
+            if st.form_submit_button("Simpan Hasil Cek", type="primary"):
                 if not petugas.strip():
                     st.error("Petugas wajib diisi")
+                elif not semua_ok and not ket.strip():
+                    st.error("Keterangan wajib diisi jika ada indikator yang tidak dicentang")
                 else:
-                    status = "Siap Pakai" if kalibrasi == "Ya, sudah" else "Tidak Siap Pakai"
+                    status = "Siap Pakai" if semua_ok else "Tidak Siap"
                     tgl_next = (tgl_insp + timedelta(days=interval)).strftime("%Y-%m-%d")
                     baru = pd.DataFrame([{
                         "Nama_Alat": alat,
                         "Tanggal_Inspeksi": tgl_insp.strftime("%Y-%m-%d"),
                         "Tanggal_Berikutnya": tgl_next,
-                        "Sudah_Kalibrasi": kalibrasi,
+                        "Indikator": indikator_str,
                         "Status": status,
                         "Petugas": petugas.strip(),
-                        "Keterangan": ket
+                        "Keterangan": ket.strip() if ket else ""
                     }])
+                    # Pastikan kolom lengkap
+                    for col in ["Nama_Alat","Tanggal_Inspeksi","Tanggal_Berikutnya","Indikator","Status","Petugas","Keterangan"]:
+                        if col not in df_alat.columns:
+                            df_alat[col] = ""
                     df_alat = pd.concat([df_alat, baru], ignore_index=True)
                     df_alat.to_excel(FILE_ALAT, index=False)
-                    st.success(f"Tersimpan. Status: {status}")
+                    if status == "Siap Pakai":
+                        st.success(f"✅ Tersimpan. Status: **Siap Pakai**")
+                    else:
+                        st.warning(f"⚠️ Tersimpan. Status: **Tidak Siap** — {ket}")
                     st.rerun()
         
         if not df_alat.empty:
-            st.markdown("#### Riwayat")
-            st.dataframe(df_alat.sort_values("Tanggal_Inspeksi", ascending=False), use_container_width=True)
+            st.markdown("---")
+            st.markdown("#### Riwayat Cek Kesiapan")
+            st.dataframe(df_alat.sort_values("Tanggal_Inspeksi", ascending=False), use_container_width=True, hide_index=True)
     
     elif pilihan_menu == "5. Kelola Master Data":
         st.markdown("### 5. Kelola Master Data")
@@ -1058,6 +1103,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
             st.dataframe(df_master, use_container_width=True, hide_index=True)
             st.markdown("---")
             st.markdown("#### Tambah / Update / Hapus Alat")
+            st.caption("Tips: beri nama yang jelas, contoh **Gas Detector 1**, **SO2 Detector 1**, **Noise Level Meter 1** agar checklist otomatis sesuai jenis.")
             
             mode_alat = st.radio("Pilih Aksi", ["Tambah Alat Baru", "Update Nama Alat", "Hapus Alat"], horizontal=True, key="mode_alat")
             
