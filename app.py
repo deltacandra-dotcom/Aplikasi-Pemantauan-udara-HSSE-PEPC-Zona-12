@@ -276,7 +276,7 @@ with st.sidebar:
         "Input Data",
         "Review Data",
         "Download Laporan",
-        "Inspeksi Alat",
+        "Cek Kesiapan Alat",
         "Kelola Master Data"
     ]
     
@@ -505,7 +505,7 @@ else:
     mapping = {
         "Review Data": "2. Review Data",
         "Download Laporan": "3. Download Laporan",
-        "Inspeksi Alat": "4. Inspeksi Alat",
+        "Cek Kesiapan Alat": "4. Cek Kesiapan Alat",
         "Kelola Master Data": "5. Kelola Master Data",
         "Kelola User": "6. Kelola User"
     }
