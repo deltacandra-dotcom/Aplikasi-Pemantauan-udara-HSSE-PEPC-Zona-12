@@ -77,7 +77,7 @@ st.markdown("""
         font-weight: 600 !important;
     }
     
-    /* ===== INPUT FIELD LEBIH KONTRAS ===== */
+    /* Input field */
     .stTextInput > div > div > input,
     .stNumberInput > div > div > input,
     .stSelectbox > div > div,
@@ -99,7 +99,6 @@ st.markdown("""
         box-shadow: 0 0 0 2px rgba(13,71,161,0.15) !important;
     }
     
-    /* Label input */
     .stTextInput label, .stNumberInput label, .stSelectbox label,
     .stDateInput label, .stTextArea label, .stRadio label {
         color: #37474F !important;
@@ -107,7 +106,6 @@ st.markdown("""
         font-size: 13.5px !important;
     }
     
-    /* Emergency */
     .emergency-box {
         background-color: #B71C1C;
         color: white;
@@ -120,7 +118,6 @@ st.markdown("""
         line-height: 1.45;
     }
     
-    /* Backup button */
     [data-testid="stSidebar"] .stDownloadButton > button {
         background-color: #2E7D32 !important;
         color: white !important;
@@ -156,7 +153,7 @@ st.markdown("""
         border-bottom: 1px solid rgba(255,255,255,0.2);
     }
     
-    /* Kartu Dashboard - Modern Pertamina */
+    /* Kartu Dashboard */
     .metric-card {
         background: linear-gradient(145deg, #FFFFFF 0%, #F8FAFC 100%);
         border-radius: 14px;
@@ -194,7 +191,19 @@ if "logged_in" not in st.session_state:
     st.session_state.username = ""
     st.session_state.nama_user = ""
 
-# ====================== LOGIN PAGE (AMAN - pakai Secrets) ======================
+# ====================== LOGIN (dari Secrets) ======================
+def cek_login(username, password):
+    """Cek username & password dari st.secrets"""
+    try:
+        users = st.secrets["users"]
+        if username in users:
+            user_data = users[username]
+            if user_data["password"] == password:
+                return True, user_data.get("nama", username)
+        return False, ""
+    except Exception:
+        return False, ""
+
 if not st.session_state.logged_in:
     st.markdown("<br><br><br>", unsafe_allow_html=True)
     
@@ -219,26 +228,15 @@ if not st.session_state.logged_in:
             submit = st.form_submit_button("Masuk", type="primary", use_container_width=True)
             
             if submit:
-                try:
-                    users = st.secrets["users"]
-                    
-                    if username.strip() in users and users[username.strip()] == password:
-                        st.session_state.logged_in = True
-                        st.session_state.username = username.strip()
-                        
-                        if username.strip() == "admin":
-                            st.session_state.nama_user = "Admin"
-                        elif username.strip() == "delta":
-                            st.session_state.nama_user = "Delta Candra"
-                        else:
-                            st.session_state.nama_user = username.strip()
-                        
-                        st.session_state.menu = "Dashboard"
-                        st.rerun()
-                    else:
-                        st.error("Username atau Password salah")
-                except Exception:
-                    st.error("Konfigurasi secrets belum benar. Pastikan file .streamlit/secrets.toml sudah ada.")
+                ok, nama = cek_login(username.strip(), password)
+                if ok:
+                    st.session_state.logged_in = True
+                    st.session_state.username = username.strip()
+                    st.session_state.nama_user = nama
+                    st.session_state.menu = "Dashboard"
+                    st.rerun()
+                else:
+                    st.error("Username atau Password salah")
     
     st.stop()
 
@@ -317,7 +315,6 @@ menu = st.session_state.menu
 if menu == "Dashboard":
     st.markdown("### Dashboard Pemantauan")
     
-    # Filter periode
     st.markdown("##### Filter Periode")
     col_f1, col_f2, col_f3 = st.columns([1.8, 1.5, 2])
     with col_f1:
@@ -337,7 +334,6 @@ if menu == "Dashboard":
     df_db = pd.read_excel(FILE_DB) if os.path.exists(FILE_DB) else pd.DataFrame()
     df_alat = pd.read_excel(FILE_ALAT) if os.path.exists(FILE_ALAT) else pd.DataFrame()
     
-    # Filter data sesuai periode
     df_filter = pd.DataFrame()
     label_periode = ""
     
@@ -361,15 +357,18 @@ if menu == "Dashboard":
     
     st.caption(f"Menampilkan data periode: **{label_periode}**")
     
-    # Hitung statistik
     total_data = len(df_filter)
-    jml_aman = len(df_filter[df_filter["Status"] == "Aman"]) if not df_filter.empty else 0
-    jml_terpapar = len(df_filter[df_filter["Status"] == "Terpapar"]) if not df_filter.empty else 0
-    jml_o2 = len(df_filter[df_filter["Status"] == "O2 Tidak Normal"]) if not df_filter.empty else 0
+    jml_aman = 0
+    jml_waspada = 0
+    jml_bahaya = 0
+    if not df_filter.empty and "Status" in df_filter.columns:
+        jml_aman = len(df_filter[df_filter["Status"] == "Aman"])
+        jml_waspada = len(df_filter[df_filter["Status"].isin(["Waspada", "O2 Tidak Normal"])])
+        jml_bahaya = len(df_filter[df_filter["Status"].isin(["Bahaya", "Terpapar"])])
     
     pct_aman = (jml_aman / total_data * 100) if total_data > 0 else 0
-    pct_terpapar = (jml_terpapar / total_data * 100) if total_data > 0 else 0
-    pct_o2 = (jml_o2 / total_data * 100) if total_data > 0 else 0
+    pct_waspada = (jml_waspada / total_data * 100) if total_data > 0 else 0
+    pct_bahaya = (jml_bahaya / total_data * 100) if total_data > 0 else 0
     
     jml_h2s = 0
     jml_so2 = 0
@@ -390,7 +389,6 @@ if menu == "Dashboard":
             if len(last) > 0 and last.iloc[0]["Status"] == "Siap Pakai":
                 siap += 1
     
-    # Kartu metrik utama
     c1, c2, c3, c4 = st.columns(4)
     
     with c1:
@@ -415,24 +413,23 @@ if menu == "Dashboard":
     with c3:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-label">Terpapar</div>
-            <div class="metric-value" style="color:#C62828;">{jml_terpapar}</div>
-            <div class="metric-sub" style="color:#C62828;">{pct_terpapar:.1f}%</div>
+            <div class="metric-label">Waspada</div>
+            <div class="metric-value" style="color:#F9A825;">{jml_waspada}</div>
+            <div class="metric-sub" style="color:#F9A825;">{pct_waspada:.1f}%</div>
         </div>
         """, unsafe_allow_html=True)
     
     with c4:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-label">O2 Tidak Normal</div>
-            <div class="metric-value" style="color:#E65100;">{jml_o2}</div>
-            <div class="metric-sub" style="color:#E65100;">{pct_o2:.1f}%</div>
+            <div class="metric-label">Bahaya</div>
+            <div class="metric-value" style="color:#C62828;">{jml_bahaya}</div>
+            <div class="metric-sub" style="color:#C62828;">{pct_bahaya:.1f}%</div>
         </div>
         """, unsafe_allow_html=True)
     
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
     
-    # Kartu statistik gas + alat
     c5, c6, c7, c8 = st.columns(4)
     
     with c5:
@@ -473,7 +470,6 @@ if menu == "Dashboard":
     
     st.markdown("<div style='height:22px'></div>", unsafe_allow_html=True)
     
-    # Tabel data + status alat
     col_kiri, col_kanan = st.columns(2)
     
     with col_kiri:
@@ -488,13 +484,10 @@ if menu == "Dashboard":
         st.markdown("#### Status Alat (Terkini)")
         if not df_alat.empty:
             status_terakhir = df_alat.sort_values("Tanggal_Inspeksi").groupby("Nama_Alat").tail(1)
-            st.dataframe(
-                status_terakhir[["Nama_Alat", "Status", "Tanggal_Inspeksi", "Tanggal_Berikutnya"]],
-                use_container_width=True,
-                hide_index=True
-            )
+            kolom_alat = [c for c in ["Nama_Alat", "Status", "Tanggal_Inspeksi", "Tanggal_Berikutnya"] if c in status_terakhir.columns]
+            st.dataframe(status_terakhir[kolom_alat], use_container_width=True, hide_index=True)
         else:
-            st.info("Belum ada data inspeksi alat.")
+            st.info("Belum ada data cek kesiapan alat.")
     
     st.markdown("---")
     st.caption("Data Realtime Sistem Pemantauan Udara Sesaat • PEPC Zona 12")

@@ -130,12 +130,13 @@ def tampilkan_halaman_input(nama_user=""):
 
     with col_kanan:
         st.markdown("#### Hasil Deteksi Alat")
+        st.caption("Baku mutu: H2S=1 | SO2=0,057 | CO=8,72 | O2=19,5–23,5 | Noise=55")
         
         h2s = st.number_input("Gas H2S (ppm) *", min_value=0.0, value=None, step=0.1, format="%.2f", placeholder="Contoh: 0.00", help="Wajib diisi. Nilai 0 jika tidak terdeteksi.")
-        o2 = st.number_input("Gas O2 (%) *", min_value=0.0, value=None, step=0.1, format="%.1f", placeholder="19.5 – 23.5", help="Rentang normal: 19.5 – 23.5 %. Tetap bisa disimpan jika di luar range (akan diberi peringatan).")
+        o2 = st.number_input("Gas O2 (%) *", min_value=0.0, value=None, step=0.1, format="%.1f", placeholder="19.5 – 23.5", help="Rentang normal: 19.5 – 23.5 %. Tetap bisa disimpan jika di luar range.")
         co = st.number_input("Gas CO (ppm) *", min_value=0.0, value=None, step=0.1, format="%.1f", placeholder="Contoh: 0.0", help="Wajib diisi.")
         lel = st.number_input("Gas LEL (%) *", min_value=0.0, value=None, step=0.1, format="%.1f", placeholder="Contoh: 0.0", help="Wajib diisi.")
-        so2 = st.number_input("Gas SO2 (ppm) *", min_value=0.0, value=None, step=0.1, format="%.2f", placeholder="Contoh: 0.00", help="Wajib diisi. Nilai 0 jika tidak terdeteksi.")
+        so2 = st.number_input("Gas SO2 (ppm) *", min_value=0.0, value=None, step=0.001, format="%.3f", placeholder="Contoh: 0.00", help="Wajib diisi. Nilai 0 jika tidak terdeteksi.")
         noise = st.number_input("Noise Level / Kebisingan (dB(A))", min_value=0.0, value=None, step=0.1, format="%.1f", placeholder="Opsional", help="Tidak wajib diisi.")
 
     st.markdown("---")
@@ -189,21 +190,61 @@ def tampilkan_halaman_input(nama_user=""):
             st.error(f"Masih ada data yang belum valid: **{', '.join(kesalahan)}**")
             return
         
-        o2_tidak_normal = False
-        if o2 < 19.5 or o2 > 23.5:
-            o2_tidak_normal = True
-            st.warning(f"⚠️ **Peringatan Oksigen:** Nilai O2 ({o2}%) berada di luar rentang normal (19.5 – 23.5). Data tetap disimpan.")
+        # ===== STATUS BERDASARKAN BAKU MUTU =====
+        ada_bahaya = False
+        ada_waspada = False
+        detail_status = []
+        
+        # H2S — baku mutu 1 ppm
+        if h2s > 0:
+            if h2s > 1.0:
+                ada_bahaya = True
+                detail_status.append(f"Terdeteksi H2S {h2s} ppm (> baku mutu 1 ppm)")
+            else:
+                ada_waspada = True
+                detail_status.append(f"Terdeteksi H2S {h2s} ppm (≤ baku mutu 1 ppm)")
+        
+        # SO2 — baku mutu 0.057 ppm
+        if so2 > 0:
+            if so2 > 0.057:
+                ada_bahaya = True
+                detail_status.append(f"Terdeteksi SO2 {so2} ppm (> baku mutu 0,057 ppm)")
+            else:
+                ada_waspada = True
+                detail_status.append(f"Terdeteksi SO2 {so2} ppm (≤ baku mutu 0,057 ppm)")
+        
+        # CO — baku mutu 8.72 ppm
+        if co > 0:
+            if co > 8.72:
+                ada_bahaya = True
+                detail_status.append(f"Terdeteksi CO {co} ppm (> baku mutu 8,72 ppm)")
+            else:
+                ada_waspada = True
+                detail_status.append(f"Terdeteksi CO {co} ppm (≤ baku mutu 8,72 ppm)")
+        
+        # O2 — di luar 19.5–23.5 = Bahaya
+        if o2 < 19.5:
+            ada_bahaya = True
+            detail_status.append(f"O2 tidak normal: {o2}% (< 19,5%)")
+        elif o2 > 23.5:
+            ada_bahaya = True
+            detail_status.append(f"O2 tidak normal: {o2}% (> 23,5%)")
+        
+        # Noise — baku mutu 55 dB
+        if noise is not None and noise > 55:
+            ada_waspada = True
+            detail_status.append(f"Kebisingan {noise} dB (melebihi baku mutu 55 dB)")
+        
+        if ada_bahaya:
+            status_gas = "Bahaya"
+        elif ada_waspada:
+            status_gas = "Waspada"
+        else:
+            status_gas = "Aman"
         
         tgl_str = tanggal_in.strftime("%Y-%m-%d")
         path_foto1 = simpan_foto(foto1, tgl_str, shift_in, tp_in, nomor=1)
         path_foto2 = simpan_foto(foto2, tgl_str, shift_in, tp_in, nomor=2) if foto2 is not None else ""
-        
-        if h2s > 0.0 or so2 > 0.0:
-            status_gas = "Terpapar"
-        elif o2_tidak_normal:
-            status_gas = "O2 Tidak Normal"
-        else:
-            status_gas = "Aman"
         
         data_baru = {
             "Tanggal": [tgl_str],
@@ -240,6 +281,14 @@ def tampilkan_halaman_input(nama_user=""):
             df_total = df_baru
             
         df_total.to_excel(FILE_DB, index=False)
+        
+        # Notifikasi status
+        if status_gas == "Bahaya":
+            st.error("⚠️ STATUS **BAHAYA**: " + " | ".join(detail_status))
+        elif status_gas == "Waspada":
+            st.warning("⚡ STATUS **WASPADA**: " + " | ".join(detail_status))
+        else:
+            st.success("✅ STATUS **AMAN** — semua parameter dalam batas normal")
         
         st.success("✅ Data berhasil disimpan!")
         st.balloons()

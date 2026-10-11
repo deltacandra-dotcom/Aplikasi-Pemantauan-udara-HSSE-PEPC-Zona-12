@@ -100,7 +100,6 @@ def add_header_logo(canvas, doc):
     canvas.saveState()
     logo_skk = "logo_skkmigas.png"
     logo_pepc = "logo_pertamina_epcepu.png"
-    
     if os.path.exists(logo_skk):
         try:
             canvas.drawImage(logo_skk, 1.8*cm, A4[1] - 1.8*cm, width=2.6*cm, height=1.0*cm, mask='auto')
@@ -564,7 +563,7 @@ def buat_pdf_laporan(df_db, tgl_target):
     story.append(Spacer(1, 3))
     story.extend(buat_tabel_hasil(df_night, "Night Shift"))
     
-    # Helper buat tabel foto (tengah)
+    # Helper foto di tengah
     def buat_blok_foto(caption, path1, path2):
         ada1 = path1 and os.path.exists(path1)
         ada2 = path2 and os.path.exists(path2)
@@ -578,7 +577,6 @@ def buat_pdf_laporan(df_db, tgl_target):
                 img2 = Image(path2, width=3.95*cm, height=5.29*cm)
             except:
                 img2 = Paragraph("[Foto error]", style_center)
-            # tabel dalam agar 2 foto rapat di tengah
             inner = Table([[img1, img2]], colWidths=[4.3*cm, 4.3*cm])
             inner.setStyle(TableStyle([
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
@@ -768,7 +766,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
         with c3:
             cari_tp = st.selectbox("Titik", ["Semua"] + list(titik_data.keys()))
         with c4:
-            cari_status = st.selectbox("Status", ["Semua", "Aman", "Terpapar", "O2 Tidak Normal"])
+            cari_status = st.selectbox("Status", ["Semua", "Aman", "Waspada", "Bahaya"])
         
         df_hasil = df_db[df_db["Tanggal"] == cari_tgl.strftime("%Y-%m-%d")].copy()
         if cari_shift != "Semua":
@@ -779,18 +777,21 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
             df_hasil = df_hasil[df_hasil["Status"] == cari_status]
         
         if not df_hasil.empty:
-            if "Terpapar" in df_hasil["Status"].values:
-                st.error("TERDETEKSI PAPARAN GAS")
-            elif "O2 Tidak Normal" in df_hasil["Status"].values:
-                st.warning("ADA DATA DENGAN O2 TIDAK NORMAL")
+            if "Bahaya" in df_hasil["Status"].values:
+                st.error("⚠️ TERDETEKSI STATUS BAHAYA")
+            elif "Waspada" in df_hasil["Status"].values:
+                st.warning("⚡ ADA STATUS WASPADA")
+            elif "Terpapar" in df_hasil["Status"].values:
+                st.error("TERDETEKSI PAPARAN GAS (data lama)")
             else:
-                st.success("SEMUA TITIK AMAN")
+                st.success("✅ SEMUA TITIK AMAN")
             
             def style_row(row):
-                if row.Status == "Terpapar":
+                s = str(row.Status)
+                if s in ["Bahaya", "Terpapar"]:
                     return ['background-color:#FFEBEE'] * len(row)
-                elif row.Status == "O2 Tidak Normal":
-                    return ['background-color:#FFF3E0'] * len(row)
+                elif s in ["Waspada", "O2 Tidak Normal"]:
+                    return ['background-color:#FFF8E1'] * len(row)
                 else:
                     return ['background-color:#E8F5E9'] * len(row)
             
@@ -862,10 +863,9 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
                     except Exception as e:
                         st.error(f"Gagal membuat PDF: {e}")
     
-    # ===================== CEK KESIAPAN ALAT =====================
     elif pilihan_menu == "4. Cek Kesiapan Alat":
         st.markdown("### 4. Cek Kesiapan Alat")
-        st.caption("Centang indikator yang berfungsi normal. Jika ada yang bermasalah, biarkan kosong dan isi keterangan.")
+        st.caption("Pilih alat dulu — indikator akan menyesuaikan. Centang jika berfungsi normal.")
         
         if os.path.exists(FILE_ALAT):
             df_alat = pd.read_excel(FILE_ALAT)
@@ -875,7 +875,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
                 "Indikator", "Status", "Petugas", "Keterangan"
             ])
         
-        # Auto update status kadaluarsa
         hari_ini = datetime.now().date()
         perlu_update = False
         if not df_alat.empty and "Tanggal_Berikutnya" in df_alat.columns:
@@ -890,7 +889,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
             if perlu_update:
                 df_alat.to_excel(FILE_ALAT, index=False)
         
-        # Status terkini
         st.markdown("#### Status Terkini")
         cols = st.columns(min(4, len(daftar_alat)) or 1)
         for i, nama in enumerate(daftar_alat):
@@ -912,25 +910,23 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
         st.markdown("---")
         st.markdown("#### Form Cek Kesiapan")
         
+        alat = st.selectbox("Pilih Alat *", daftar_alat, key="pilih_alat_cek")
+        
+        nama_lower = alat.lower() if alat else ""
+        if "so2" in nama_lower:
+            jenis = "SO2"
+        elif "noise" in nama_lower or "sound" in nama_lower or "kebisingan" in nama_lower:
+            jenis = "Noise"
+        else:
+            jenis = "Multiple"
+        
         with st.form("form_cek_kesiapan"):
-            alat = st.selectbox("Pilih Alat *", daftar_alat)
             tgl_insp = st.date_input("Tanggal Cek *", datetime.now())
             interval = st.number_input("Interval pengecekan berikutnya (hari) *", 1, 365, 30)
             petugas = st.text_input("Petugas *", value=nama_user)
             
-            # Deteksi jenis alat
-            nama_lower = alat.lower() if alat else ""
-            if "so2" in nama_lower:
-                jenis = "SO2"
-            elif "noise" in nama_lower or "sound" in nama_lower or "kebisingan" in nama_lower:
-                jenis = "Noise"
-            else:
-                jenis = "Multiple"  # Gas Detector / Multiple
-            
-            st.markdown("**Checklist Indikator**")
+            st.markdown(f"**Checklist Indikator — {alat}**")
             st.caption("Centang jika indikator berfungsi normal.")
-            
-            chk_h2s = chk_co = chk_o2 = chk_lel = chk_so2 = chk_noise = True
             
             if jenis == "Multiple":
                 c1, c2, c3, c4 = st.columns(4)
@@ -950,7 +946,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
                 semua_ok = chk_so2
                 indikator_str = f"SO2:{'Ya' if chk_so2 else 'Tidak'}"
             
-            else:  # Noise
+            else:
                 chk_noise = st.checkbox("Noise / Sound Level Meter OK", value=True)
                 semua_ok = chk_noise
                 indikator_str = f"Noise:{'Ya' if chk_noise else 'Tidak'}"
@@ -959,8 +955,8 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
                 st.success("Semua indikator OK → Status akan **Siap Pakai**")
                 ket = st.text_area("Keterangan (opsional)")
             else:
-                st.warning("Ada indikator tidak dicentang → Status akan **Tidak Siap** (kuning). Keterangan **wajib** diisi.")
-                ket = st.text_area("Keterangan * (wajib)", placeholder="Contoh: Indikator CO sedang bermasalah / sensor rusak")
+                st.warning("Ada indikator tidak dicentang → Status **Tidak Siap**. Keterangan **wajib**.")
+                ket = st.text_area("Keterangan * (wajib)", placeholder="Contoh: Indikator CO sedang bermasalah")
             
             if st.form_submit_button("Simpan Hasil Cek", type="primary"):
                 if not petugas.strip():
@@ -979,14 +975,13 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
                         "Petugas": petugas.strip(),
                         "Keterangan": ket.strip() if ket else ""
                     }])
-                    # Pastikan kolom lengkap
                     for col in ["Nama_Alat","Tanggal_Inspeksi","Tanggal_Berikutnya","Indikator","Status","Petugas","Keterangan"]:
                         if col not in df_alat.columns:
                             df_alat[col] = ""
                     df_alat = pd.concat([df_alat, baru], ignore_index=True)
                     df_alat.to_excel(FILE_ALAT, index=False)
                     if status == "Siap Pakai":
-                        st.success(f"✅ Tersimpan. Status: **Siap Pakai**")
+                        st.success("✅ Tersimpan. Status: **Siap Pakai**")
                     else:
                         st.warning(f"⚠️ Tersimpan. Status: **Tidak Siap** — {ket}")
                     st.rerun()
@@ -1103,7 +1098,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
             st.dataframe(df_master, use_container_width=True, hide_index=True)
             st.markdown("---")
             st.markdown("#### Tambah / Update / Hapus Alat")
-            st.caption("Tips: beri nama yang jelas, contoh **Gas Detector 1**, **SO2 Detector 1**, **Noise Level Meter 1** agar checklist otomatis sesuai jenis.")
+            st.caption("Tips nama: **Gas Detector 1**, **SO2 Detector 1**, **Noise Level Meter 1** agar checklist otomatis sesuai.")
             
             mode_alat = st.radio("Pilih Aksi", ["Tambah Alat Baru", "Update Nama Alat", "Hapus Alat"], horizontal=True, key="mode_alat")
             
@@ -1140,7 +1135,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
                         else:
                             df_master.loc[df_master["Nama_Alat"] == nama_lama, "Nama_Alat"] = nama_alat.strip()
                             df_master.to_excel(FILE_MASTER_ALAT, index=False)
-                            st.success(f"Nama alat berhasil diubah!")
+                            st.success("Nama alat berhasil diubah!")
                             st.rerun()
                     elif mode_alat == "Hapus Alat":
                         if nama_alat:
@@ -1182,7 +1177,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
         
         with tab4:
             st.markdown("#### Pengaturan Nama Pejabat & Kesimpulan Default Laporan PDF")
-            st.caption("Nama Day Shift & Night Shift diambil otomatis dari data input. Kesimpulan default dipakai jika tidak ada kesimpulan dari input data.")
+            st.caption("Nama Day/Night Shift diambil otomatis dari input. Kesimpulan default dipakai jika tidak ada dari input.")
             
             peng = load_pengaturan_laporan()
             
@@ -1212,7 +1207,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
         
         with tab5:
             st.markdown("#### Upload Tanda Tangan untuk Laporan PDF")
-            st.caption("Upload 4 gambar tanda tangan (PNG/JPG). Gambar akan muncul di bagian tanda tangan laporan.")
+            st.caption("Upload 4 gambar tanda tangan (PNG/JPG).")
             
             os.makedirs(FOLDER_TTD, exist_ok=True)
             
@@ -1268,7 +1263,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
         
         with tab6:
             st.markdown("#### Kelola Opsi Kesimpulan")
-            st.caption("Opsi kesimpulan yang dibuat di sini akan muncul di Form Input Data (Pilih Kesimpulan).")
+            st.caption("Opsi ini muncul di Form Input Data (Pilih Kesimpulan).")
             
             if os.path.exists(FILE_KESIMPULAN):
                 df_kes = pd.read_excel(FILE_KESIMPULAN)
@@ -1294,7 +1289,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
                     idx_pilih = st.selectbox("Pilih kesimpulan yang ingin dihapus *", range(len(list_kes)), format_func=lambda i: list_kes[i] if list_kes else "")
                     teks_kes = ""
                     if list_kes:
-                        st.warning(f"Kesimpulan berikut akan dihapus:\n\n**{list_kes[idx_pilih]}**")
+                        st.warning(f"Akan dihapus:\n\n**{list_kes[idx_pilih]}**")
                 
                 submitted_kes = st.form_submit_button("Simpan Perubahan", type="primary", use_container_width=True)
                 
