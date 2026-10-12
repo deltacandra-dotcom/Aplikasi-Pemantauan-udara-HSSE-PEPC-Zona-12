@@ -79,8 +79,7 @@ def load_pengaturan_laporan():
         "Nama_Diperiksa": "Ian T.M",
         "Jabatan_Diperiksa": "Environment Officer",
         "Nama_Disetujui": "Ahmad Afifuddin",
-        "Jabatan_Disetujui": "Superintendent Field HSSE",
-        "Kesimpulan": "Berdasarkan hasil pemantauan udara sesaat dengan menggunakan Multiple Gas Detector dan SO2 Detector di beberapa titik, tidak terdeteksi adanya Gas H2S dan SO2 di seluruh lokasi pemantauan."
+        "Jabatan_Disetujui": "Superintendent Field HSSE"
     }
     if os.path.exists(FILE_PENGATURAN):
         try:
@@ -89,8 +88,7 @@ def load_pengaturan_laporan():
                 "Nama_Diperiksa": str(df.loc[0, "Nama_Diperiksa"]) if "Nama_Diperiksa" in df.columns else default["Nama_Diperiksa"],
                 "Jabatan_Diperiksa": str(df.loc[0, "Jabatan_Diperiksa"]) if "Jabatan_Diperiksa" in df.columns else default["Jabatan_Diperiksa"],
                 "Nama_Disetujui": str(df.loc[0, "Nama_Disetujui"]) if "Nama_Disetujui" in df.columns else default["Nama_Disetujui"],
-                "Jabatan_Disetujui": str(df.loc[0, "Jabatan_Disetujui"]) if "Jabatan_Disetujui" in df.columns else default["Jabatan_Disetujui"],
-                "Kesimpulan": str(df.loc[0, "Kesimpulan"]) if "Kesimpulan" in df.columns else default["Kesimpulan"]
+                "Jabatan_Disetujui": str(df.loc[0, "Jabatan_Disetujui"]) if "Jabatan_Disetujui" in df.columns else default["Jabatan_Disetujui"]
             }
         except:
             return default
@@ -657,11 +655,11 @@ def buat_pdf_laporan(df_db, tgl_target):
             pass
     
     # 7. Kesimpulan + Tanda Tangan
+    # Kesimpulan HANYA dari Pilih Kesimpulan saat input (yang terakhir)
     story.append(Spacer(1, 8))
     story.append(Paragraph("7. Kesimpulan :", style_heading))
     
-    peng = load_pengaturan_laporan()
-    kesimpulan_hari = peng["Kesimpulan"]
+    kesimpulan_hari = "-"
     if not df_hari.empty and "Kesimpulan" in df_hari.columns:
         kes_list = [x for x in df_hari["Kesimpulan"].dropna().tolist() if str(x).strip()]
         if kes_list:
@@ -672,6 +670,8 @@ def buat_pdf_laporan(df_db, tgl_target):
     
     story.append(Paragraph(f"Bojonegoro, {tgl_target.day} {bulan_list[tgl_target.month]} {tgl_target.year}", style_left))
     story.append(Spacer(1, 6))
+    
+    peng = load_pengaturan_laporan()
     
     ttd_ds = os.path.join(FOLDER_TTD, "ttd_day.png")
     ttd_ns = os.path.join(FOLDER_TTD, "ttd_night.png")
@@ -847,7 +847,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
         with tab3:
             st.caption("Generate PDF Laporan Resmi")
             tgl_pdf = st.date_input("Pilih Tanggal untuk PDF", datetime.now(), key="tgl_pdf")
-            st.info("Pastikan sudah upload foto, peta, tanda tangan, dan mengisi nama pejabat + kesimpulan di Master Data.")
+            st.info("Pastikan sudah upload foto, peta, tanda tangan, dan mengisi nama pejabat di Master Data. Kesimpulan diambil dari Pilih Kesimpulan saat input.")
             
             if st.button("Generate PDF Laporan", type="primary"):
                 with st.spinner("Sedang membuat PDF..."):
@@ -996,7 +996,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
         
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
             "Kelola Titik Pantau", "Kelola Daftar Alat", "Upload Peta Laporan", 
-            "Nama Pejabat & Kesimpulan", "Upload Tanda Tangan", "Kelola Kesimpulan"
+            "Nama Pejabat", "Upload Tanda Tangan", "Kelola Kesimpulan"
         ])
         
         with tab1:
@@ -1176,8 +1176,8 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
                     st.caption("Peta 2 sudah ada")
         
         with tab4:
-            st.markdown("#### Pengaturan Nama Pejabat & Kesimpulan Default Laporan PDF")
-            st.caption("Nama Day/Night Shift diambil otomatis dari input. Kesimpulan default dipakai jika tidak ada dari input.")
+            st.markdown("#### Pengaturan Nama Pejabat Laporan PDF")
+            st.caption("Nama Day Shift & Night Shift diambil otomatis dari data input.")
             
             peng = load_pengaturan_laporan()
             
@@ -1190,16 +1190,12 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
                     nama_disetujui = st.text_input("Nama Disetujui oleh", value=peng["Nama_Disetujui"])
                     jabatan_disetujui = st.text_input("Jabatan Disetujui oleh", value=peng["Jabatan_Disetujui"])
                 
-                st.markdown("---")
-                kesimpulan = st.text_area("Teks Kesimpulan Default Laporan", value=peng["Kesimpulan"], height=100)
-                
                 if st.form_submit_button("Simpan Pengaturan", type="primary"):
                     df_simpan = pd.DataFrame([{
                         "Nama_Diperiksa": nama_diperiksa,
                         "Jabatan_Diperiksa": jabatan_diperiksa,
                         "Nama_Disetujui": nama_disetujui,
-                        "Jabatan_Disetujui": jabatan_disetujui,
-                        "Kesimpulan": kesimpulan
+                        "Jabatan_Disetujui": jabatan_disetujui
                     }])
                     df_simpan.to_excel(FILE_PENGATURAN, index=False)
                     st.success("Pengaturan berhasil disimpan!")
@@ -1263,7 +1259,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
         
         with tab6:
             st.markdown("#### Kelola Opsi Kesimpulan")
-            st.caption("Opsi ini muncul di Form Input Data (Pilih Kesimpulan).")
+            st.caption("Opsi ini muncul di Form Input Data (Pilih Kesimpulan). Yang dipilih saat input akan masuk ke laporan PDF.")
             
             if os.path.exists(FILE_KESIMPULAN):
                 df_kes = pd.read_excel(FILE_KESIMPULAN)
