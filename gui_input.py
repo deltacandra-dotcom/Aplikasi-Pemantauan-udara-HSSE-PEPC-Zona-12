@@ -164,7 +164,23 @@ def tampilkan_halaman_input(nama_user=""):
 
     st.markdown("---")
 
-    if st.button("Simpan Data", type="primary", use_container_width=True):
+    # State konfirmasi input dobel
+    if "konfirmasi_dobel" not in st.session_state:
+        st.session_state.konfirmasi_dobel = False
+
+    col_btn1, col_btn2 = st.columns([3, 1])
+    
+    with col_btn1:
+        label_tombol = "Konfirmasi & Simpan Data" if st.session_state.konfirmasi_dobel else "Simpan Data"
+        klik = st.button(label_tombol, type="primary", use_container_width=True)
+    
+    with col_btn2:
+        if st.session_state.konfirmasi_dobel:
+            if st.button("Batal", use_container_width=True):
+                st.session_state.konfirmasi_dobel = False
+                st.rerun()
+
+    if klik:
         kesalahan = []
         
         if not petugas_in.strip():
@@ -188,10 +204,13 @@ def tampilkan_halaman_input(nama_user=""):
         
         if kesalahan:
             st.error(f"Masih ada data yang belum valid: **{', '.join(kesalahan)}**")
+            st.session_state.konfirmasi_dobel = False
             return
         
-        # ===== Peringatan input dobel (tetap bisa simpan) =====
         tgl_str = tanggal_in.strftime("%Y-%m-%d")
+        
+        # Cek data sudah ada?
+        sudah_ada = False
         if os.path.exists(FILE_DB):
             df_cek = pd.read_excel(FILE_DB)
             if not df_cek.empty and all(c in df_cek.columns for c in ["Tanggal", "Shift", "Kode_Titik"]):
@@ -201,12 +220,19 @@ def tampilkan_halaman_input(nama_user=""):
                     (df_cek["Kode_Titik"].astype(str) == str(tp_in))
                 ]
                 if len(match_dobel) > 0:
-                    st.error(
-                        f"⚠️ Data untuk **{tp_in}** ({shift_in}, {tgl_str}) sudah pernah diinput. "
-                        f"Yakin ingin menyimpan lagi? Data tetap akan ditambahkan."
-                    )
+                    sudah_ada = True
         
-        # ===== STATUS BERDASARKAN BAKU MUTU =====
+        # Klik 1: data dobel → hanya peringatan, BELUM simpan
+        if sudah_ada and not st.session_state.konfirmasi_dobel:
+            st.session_state.konfirmasi_dobel = True
+            st.error(
+                f"⚠️ Data untuk **{tp_in}** ({shift_in}, {tgl_str}) sudah pernah diinput. "
+                f"Yakin ingin menginputnya kembali?"
+            )
+            st.warning("Klik tombol **Konfirmasi & Simpan Data** sekali lagi untuk menyimpan, atau klik **Batal**.")
+            return
+        
+        # ===== STATUS BAKU MUTU =====
         ada_bahaya = False
         ada_waspada = False
         detail_status = []
@@ -291,6 +317,9 @@ def tampilkan_halaman_input(nama_user=""):
             df_total = df_baru
             
         df_total.to_excel(FILE_DB, index=False)
+        
+        # Reset konfirmasi
+        st.session_state.konfirmasi_dobel = False
         
         if status_gas == "Bahaya":
             st.error("⚠️ STATUS **BAHAYA**: " + " | ".join(detail_status))

@@ -188,6 +188,14 @@ st.markdown("""
         margin-bottom: 14px;
     }
     
+    .alert-waspada {
+        background: linear-gradient(135deg, #FFF8E1 0%, #FFECB3 100%);
+        border-left: 5px solid #F9A825;
+        border-radius: 10px;
+        padding: 14px 18px;
+        margin-bottom: 14px;
+    }
+    
     .info-hari {
         background: linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 100%);
         border-left: 5px solid #0D47A1;
@@ -388,7 +396,7 @@ if menu == "Dashboard":
     
     st.caption(f"Menampilkan data periode: **{label_periode}**")
     
-    # ===== ALERT BAHAYA =====
+    # ===== ALERT BAHAYA & WASPADA =====
     if not df_filter.empty and "Status" in df_filter.columns:
         df_bahaya = df_filter[df_filter["Status"].isin(["Bahaya", "Terpapar"])]
         if not df_bahaya.empty:
@@ -419,6 +427,38 @@ if menu == "Dashboard":
                 </div>
                 <div style="color:#B71C1C;font-size:13.5px;line-height:1.6;">
                     {"<br>".join(baris_bahaya)}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        df_waspada = df_filter[df_filter["Status"].isin(["Waspada", "O2 Tidak Normal"])]
+        if not df_waspada.empty:
+            baris_waspada = []
+            for _, r in df_waspada.iterrows():
+                kode = r.get("Kode_Titik", "-")
+                lokasi = r.get("Lokasi", "")
+                detail = []
+                try:
+                    if float(r.get("H2S", 0) or 0) > 0:
+                        detail.append(f"H2S {r['H2S']} ppm")
+                    if float(r.get("SO2", 0) or 0) > 0:
+                        detail.append(f"SO2 {r['SO2']} ppm")
+                    if float(r.get("CO", 0) or 0) > 0:
+                        detail.append(f"CO {r['CO']} ppm")
+                    if r.get("Noise") is not None and float(r.get("Noise", 0) or 0) > 55:
+                        detail.append(f"Noise {r['Noise']} dB")
+                except Exception:
+                    pass
+                det = " — " + ", ".join(detail) if detail else ""
+                baris_waspada.append(f"• <b>{kode}</b> ({lokasi}){det}")
+            
+            st.markdown(f"""
+            <div class="alert-waspada">
+                <div style="font-weight:700;color:#F57F17;margin-bottom:6px;">
+                    ⚡ STATUS WASPADA
+                </div>
+                <div style="color:#E65100;font-size:13.5px;line-height:1.6;">
+                    {"<br>".join(baris_waspada)}
                 </div>
             </div>
             """, unsafe_allow_html=True)
