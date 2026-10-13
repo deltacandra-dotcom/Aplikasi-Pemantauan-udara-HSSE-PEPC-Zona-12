@@ -438,7 +438,6 @@ def buat_pdf_laporan(df_db, tgl_target):
     story.append(Paragraph(intro, style_normal))
     story.append(Spacer(1, 3))
     
-    # 1. Pelaksanaan
     story.append(Paragraph("1. Pelaksanaan :", style_heading))
     
     df_hari = df_db[df_db["Tanggal"] == tgl_str].copy() if not df_db.empty else pd.DataFrame()
@@ -489,12 +488,10 @@ def buat_pdf_laporan(df_db, tgl_target):
     ]))
     story.append(t_pel)
     
-    # 2. Tujuan
     story.append(Paragraph("2. Tujuan :", style_heading))
     story.append(Paragraph("a. Memastikan dispersi dari kegiatan flaring JTB GPF aman.", style_normal))
     story.append(Paragraph("b. Sebagai salah satu data rona lingkungan pada Tahap Operasi berlangsung.", style_normal))
     
-    # 3. Titik Pengukuran
     story.append(Paragraph("3. Titik Pengukuran", style_heading))
     story.append(Paragraph("Titik monitoring dilakukan di luar area GPF, penentuan titik pemantauan berdasarkan 4 arah mata angin serta kawasan permukiman terdekat:", style_normal))
     story.append(Spacer(1, 2))
@@ -518,7 +515,6 @@ def buat_pdf_laporan(df_db, tgl_target):
     ]))
     story.append(t_titik)
     
-    # 4. Hasil Pengukuran
     story.append(Paragraph("4. Hasil Pengukuran", style_heading))
     story.append(Paragraph("Hasil monitoring pada titik pantau menggunakan <i>Multiple Gas Detector</i> adalah sebagai berikut:", style_normal))
     
@@ -561,7 +557,6 @@ def buat_pdf_laporan(df_db, tgl_target):
     story.append(Spacer(1, 3))
     story.extend(buat_tabel_hasil(df_night, "Night Shift"))
     
-    # Helper foto di tengah
     def buat_blok_foto(caption, path1, path2):
         ada1 = path1 and os.path.exists(path1)
         ada2 = path2 and os.path.exists(path2)
@@ -609,7 +604,6 @@ def buat_pdf_laporan(df_db, tgl_target):
         ]))
         return t
     
-    # 5. Dokumentasi Day Shift
     story.append(PageBreak())
     story.append(Paragraph("5. Dokumentasi, Pemantauan Day Shift", style_heading))
     
@@ -621,7 +615,6 @@ def buat_pdf_laporan(df_db, tgl_target):
         story.append(buat_blok_foto(caption, path1, path2))
         story.append(Spacer(1, 3))
     
-    # 6. Dokumentasi Night Shift
     story.append(PageBreak())
     
     path_peta1 = os.path.join(FOLDER_PETA, "peta_1.jpg")
@@ -654,11 +647,10 @@ def buat_pdf_laporan(df_db, tgl_target):
         except:
             pass
     
-    # 7. Kesimpulan + Tanda Tangan
-    # Kesimpulan HANYA dari Pilih Kesimpulan saat input (yang terakhir)
     story.append(Spacer(1, 8))
     story.append(Paragraph("7. Kesimpulan :", style_heading))
     
+    # Kesimpulan HANYA dari Pilih Kesimpulan saat input
     kesimpulan_hari = "-"
     if not df_hari.empty and "Kesimpulan" in df_hari.columns:
         kes_list = [x for x in df_hari["Kesimpulan"].dropna().tolist() if str(x).strip()]
@@ -805,7 +797,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
                 st.success("Data dihapus")
                 st.rerun()
         else:
-            st.warning("Tidak ada data.")
+            st.info("Belum ada data pada filter ini.")
     
     elif pilihan_menu == "3. Download Laporan":
         st.markdown("### 3. Panel Cetak & Download")
@@ -847,7 +839,72 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
         with tab3:
             st.caption("Generate PDF Laporan Resmi")
             tgl_pdf = st.date_input("Pilih Tanggal untuk PDF", datetime.now(), key="tgl_pdf")
-            st.info("Pastikan sudah upload foto, peta, tanda tangan, dan mengisi nama pejabat di Master Data. Kesimpulan diambil dari Pilih Kesimpulan saat input.")
+            
+            tgl_pdf_str = tgl_pdf.strftime("%Y-%m-%d")
+            df_hari_pdf = df_db[df_db["Tanggal"] == tgl_pdf_str].copy() if not df_db.empty else pd.DataFrame()
+            
+            if os.path.exists(FILE_TITIK):
+                list_tp = pd.read_excel(FILE_TITIK)["Kode"].astype(str).tolist()
+            else:
+                list_tp = list(titik_data.keys())
+            total_tp = len(list_tp) if list_tp else 6
+            
+            def hitung_shift(df, shift):
+                if df.empty or "Shift" not in df.columns:
+                    return 0, list_tp
+                d = df[df["Shift"] == shift]
+                sudah = d["Kode_Titik"].astype(str).unique().tolist() if not d.empty and "Kode_Titik" in d.columns else []
+                belum = [t for t in list_tp if t not in sudah]
+                return len(sudah), belum
+            
+            n_ds, belum_ds = hitung_shift(df_hari_pdf, "Day Shift")
+            n_ns, belum_ns = hitung_shift(df_hari_pdf, "Night Shift")
+            
+            ada_kes = False
+            if not df_hari_pdf.empty and "Kesimpulan" in df_hari_pdf.columns:
+                ada_kes = any(str(x).strip() for x in df_hari_pdf["Kesimpulan"].dropna().tolist() if str(x).strip() and str(x) != "nan")
+            
+            jml_foto = 0
+            if not df_hari_pdf.empty:
+                for col_f in ["Path_Foto", "Path_Foto2"]:
+                    if col_f in df_hari_pdf.columns:
+                        jml_foto += int(df_hari_pdf[col_f].fillna("").astype(str).apply(
+                            lambda x: 1 if x.strip() and x.lower() != "nan" else 0
+                        ).sum())
+            
+            ada_peta1 = os.path.exists(os.path.join(FOLDER_PETA, "peta_1.jpg"))
+            ada_peta2 = os.path.exists(os.path.join(FOLDER_PETA, "peta_2.jpg"))
+            ada_ttd = any(os.path.exists(os.path.join(FOLDER_TTD, f)) for f in [
+                "ttd_day.png", "ttd_night.png", "ttd_diperiksa.png", "ttd_disetujui.png"
+            ])
+            
+            def icon(ok):
+                return "✅" if ok else "⚠️"
+            
+            teks_ds = f"{icon(n_ds >= total_tp)} Data Day Shift ({n_ds}/{total_tp})"
+            if belum_ds:
+                teks_ds += f" — kurang: {', '.join(belum_ds)}"
+            
+            teks_ns = f"{icon(n_ns >= total_tp)} Data Night Shift ({n_ns}/{total_tp})"
+            if belum_ns:
+                teks_ns += f" — kurang: {', '.join(belum_ns)}"
+            
+            st.markdown(f"""
+            <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;
+                        padding:14px 16px;margin:10px 0 14px 0;">
+                <div style="font-weight:700;color:#0D47A1;margin-bottom:8px;">
+                    Kelengkapan laporan — {tgl_pdf.strftime('%d %B %Y')}
+                </div>
+                <div style="font-size:13.5px;line-height:1.75;color:#334155;">
+                    {teks_ds}<br>
+                    {teks_ns}<br>
+                    {icon(ada_kes)} Kesimpulan {"sudah ada" if ada_kes else "belum dipilih"}<br>
+                    {icon(jml_foto > 0)} Foto terupload: {jml_foto} file<br>
+                    {icon(ada_peta1 and ada_peta2)} Peta 1 &amp; 2 {"lengkap" if (ada_peta1 and ada_peta2) else "belum lengkap"}<br>
+                    {icon(ada_ttd)} Tanda tangan {"sudah diupload" if ada_ttd else "belum diupload"}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
             
             if st.button("Generate PDF Laporan", type="primary"):
                 with st.spinner("Sedang membuat PDF..."):

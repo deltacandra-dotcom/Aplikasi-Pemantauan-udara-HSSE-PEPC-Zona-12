@@ -14,6 +14,7 @@ st.set_page_config(
 
 FILE_DB = "database_monitoring_jtb.xlsx"
 FILE_ALAT = "database_inspeksi_alat.xlsx"
+FILE_TITIK = "master_titik_pantau.xlsx"
 
 # ====================== CSS ======================
 st.markdown("""
@@ -26,7 +27,6 @@ st.markdown("""
     
     .stApp { background-color: #F0F4F8; }
     
-    /* Sidebar */
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #0A3D91 0%, #0D47A1 50%, #1565C0 100%);
         padding-top: 1.2rem;
@@ -52,7 +52,6 @@ st.markdown("""
         color: #FFFFFF !important;
     }
     
-    /* Tombol utama */
     .stButton > button {
         background-color: #0D47A1;
         color: white;
@@ -77,7 +76,6 @@ st.markdown("""
         font-weight: 600 !important;
     }
     
-    /* Input field */
     .stTextInput > div > div > input,
     .stNumberInput > div > div > input,
     .stSelectbox > div > div,
@@ -153,7 +151,6 @@ st.markdown("""
         border-bottom: 1px solid rgba(255,255,255,0.2);
     }
     
-    /* Kartu Dashboard */
     .metric-card {
         background: linear-gradient(145deg, #FFFFFF 0%, #F8FAFC 100%);
         border-radius: 14px;
@@ -182,6 +179,22 @@ st.markdown("""
         margin-top: 6px;
         font-weight: 500;
     }
+    
+    .alert-bahaya {
+        background: linear-gradient(135deg, #FFEBEE 0%, #FFCDD2 100%);
+        border-left: 5px solid #C62828;
+        border-radius: 10px;
+        padding: 14px 18px;
+        margin-bottom: 14px;
+    }
+    
+    .info-hari {
+        background: linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 100%);
+        border-left: 5px solid #0D47A1;
+        border-radius: 10px;
+        padding: 14px 18px;
+        margin-bottom: 16px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -191,9 +204,8 @@ if "logged_in" not in st.session_state:
     st.session_state.username = ""
     st.session_state.nama_user = ""
 
-# ====================== LOGIN (dari Secrets) ======================
+# ====================== LOGIN DARI SECRETS ======================
 def cek_login(username, password):
-    """Cek username & password dari st.secrets"""
     try:
         users = st.secrets["users"]
         if username in users:
@@ -318,15 +330,23 @@ if menu == "Dashboard":
     st.markdown("##### Filter Periode")
     col_f1, col_f2, col_f3 = st.columns([1.8, 1.5, 2])
     with col_f1:
-        mode_periode = st.radio("Pilih Periode", ["Harian", "Bulanan", "Tahunan"], horizontal=True, key="mode_dash")
+        mode_periode = st.radio(
+            "Pilih Periode",
+            ["Harian", "Bulanan", "Tahunan"],
+            horizontal=True,
+            key="mode_dash"
+        )
     with col_f2:
         if mode_periode == "Harian":
             tgl_dash = st.date_input("Tanggal", datetime.now(), key="tgl_dash")
         elif mode_periode == "Bulanan":
-            bln_dash = st.selectbox("Bulan", 
-                ["Januari","Februari","Maret","April","Mei","Juni",
-                 "Juli","Agustus","September","Oktober","November","Desember"],
-                index=datetime.now().month-1, key="bln_dash")
+            bln_dash = st.selectbox(
+                "Bulan",
+                ["Januari", "Februari", "Maret", "April", "Mei", "Juni",
+                 "Juli", "Agustus", "September", "Oktober", "November", "Desember"],
+                index=datetime.now().month - 1,
+                key="bln_dash"
+            )
             thn_dash = st.number_input("Tahun", 2024, 2030, datetime.now().year, key="thn_bln")
         else:
             thn_dash = st.number_input("Tahun", 2024, 2030, datetime.now().year, key="thn_thn")
@@ -334,22 +354,33 @@ if menu == "Dashboard":
     df_db = pd.read_excel(FILE_DB) if os.path.exists(FILE_DB) else pd.DataFrame()
     df_alat = pd.read_excel(FILE_ALAT) if os.path.exists(FILE_ALAT) else pd.DataFrame()
     
+    if os.path.exists(FILE_TITIK):
+        list_titik = pd.read_excel(FILE_TITIK)["Kode"].astype(str).tolist()
+    else:
+        list_titik = ["TP 1", "TP 2", "TP 3", "TP 4", "TP 5", "TP 6"]
+    
     df_filter = pd.DataFrame()
     label_periode = ""
+    tgl_str_harian = None
     
     if not df_db.empty and "Tanggal" in df_db.columns:
         df_db["Tanggal_dt"] = pd.to_datetime(df_db["Tanggal"], errors="coerce")
         
         if mode_periode == "Harian":
-            tgl_str = tgl_dash.strftime("%Y-%m-%d")
-            df_filter = df_db[df_db["Tanggal"] == tgl_str].copy()
+            tgl_str_harian = tgl_dash.strftime("%Y-%m-%d")
+            df_filter = df_db[df_db["Tanggal"] == tgl_str_harian].copy()
             label_periode = tgl_dash.strftime("%d %B %Y")
         elif mode_periode == "Bulanan":
-            bulan_map = {"Januari":1,"Februari":2,"Maret":3,"April":4,"Mei":5,"Juni":6,
-                         "Juli":7,"Agustus":8,"September":9,"Oktober":10,"November":11,"Desember":12}
+            bulan_map = {
+                "Januari": 1, "Februari": 2, "Maret": 3, "April": 4,
+                "Mei": 5, "Juni": 6, "Juli": 7, "Agustus": 8,
+                "September": 9, "Oktober": 10, "November": 11, "Desember": 12
+            }
             bln_angka = bulan_map.get(bln_dash, datetime.now().month)
-            df_filter = df_db[(df_db["Tanggal_dt"].dt.month == bln_angka) & 
-                              (df_db["Tanggal_dt"].dt.year == thn_dash)].copy()
+            df_filter = df_db[
+                (df_db["Tanggal_dt"].dt.month == bln_angka) &
+                (df_db["Tanggal_dt"].dt.year == thn_dash)
+            ].copy()
             label_periode = f"{bln_dash} {thn_dash}"
         else:
             df_filter = df_db[df_db["Tanggal_dt"].dt.year == thn_dash].copy()
@@ -357,6 +388,83 @@ if menu == "Dashboard":
     
     st.caption(f"Menampilkan data periode: **{label_periode}**")
     
+    # ===== ALERT BAHAYA =====
+    if not df_filter.empty and "Status" in df_filter.columns:
+        df_bahaya = df_filter[df_filter["Status"].isin(["Bahaya", "Terpapar"])]
+        if not df_bahaya.empty:
+            baris_bahaya = []
+            for _, r in df_bahaya.iterrows():
+                kode = r.get("Kode_Titik", "-")
+                lokasi = r.get("Lokasi", "")
+                detail = []
+                try:
+                    if float(r.get("H2S", 0) or 0) > 0:
+                        detail.append(f"H2S {r['H2S']} ppm")
+                    if float(r.get("SO2", 0) or 0) > 0:
+                        detail.append(f"SO2 {r['SO2']} ppm")
+                    if float(r.get("CO", 0) or 0) > 0:
+                        detail.append(f"CO {r['CO']} ppm")
+                    o2v = float(r.get("O2", 20.9) or 20.9)
+                    if o2v < 19.5 or o2v > 23.5:
+                        detail.append(f"O2 {o2v}%")
+                except Exception:
+                    pass
+                det = " — " + ", ".join(detail) if detail else ""
+                baris_bahaya.append(f"• <b>{kode}</b> ({lokasi}){det}")
+            
+            st.markdown(f"""
+            <div class="alert-bahaya">
+                <div style="font-weight:700;color:#C62828;margin-bottom:6px;">
+                    ⚠️ STATUS BAHAYA
+                </div>
+                <div style="color:#B71C1C;font-size:13.5px;line-height:1.6;">
+                    {"<br>".join(baris_bahaya)}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # ===== DATA HARI INI =====
+    if mode_periode == "Harian" and tgl_str_harian:
+        def cek_shift(df, shift_name):
+            if df.empty:
+                return 0, list_titik
+            ds = df[df["Shift"] == shift_name] if "Shift" in df.columns else pd.DataFrame()
+            sudah = (
+                ds["Kode_Titik"].astype(str).unique().tolist()
+                if not ds.empty and "Kode_Titik" in ds.columns
+                else []
+            )
+            belum = [t for t in list_titik if t not in sudah]
+            return len(sudah), belum
+        
+        n_ds, belum_ds = cek_shift(df_filter, "Day Shift")
+        n_ns, belum_ns = cek_shift(df_filter, "Night Shift")
+        total_tp = len(list_titik)
+        
+        teks_ds = f"Day Shift &nbsp;<b>{n_ds}/{total_tp}</b> titik"
+        if belum_ds:
+            teks_ds += f" &nbsp;|&nbsp; Belum: {', '.join(belum_ds)}"
+        else:
+            teks_ds += " &nbsp;|&nbsp; Lengkap ✅"
+        
+        teks_ns = f"Night Shift &nbsp;<b>{n_ns}/{total_tp}</b> titik"
+        if belum_ns:
+            teks_ns += f" &nbsp;|&nbsp; Belum: {', '.join(belum_ns)}"
+        else:
+            teks_ns += " &nbsp;|&nbsp; Lengkap ✅"
+        
+        st.markdown(f"""
+        <div class="info-hari">
+            <div style="font-weight:700;color:#0D47A1;margin-bottom:6px;">
+                Data hari ini: {label_periode}
+            </div>
+            <div style="color:#1565C0;font-size:13.5px;line-height:1.7;">
+                {teks_ds}<br>{teks_ns}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Statistik
     total_data = len(df_filter)
     jml_aman = 0
     jml_waspada = 0
@@ -378,9 +486,17 @@ if menu == "Dashboard":
         if "SO2" in df_filter.columns:
             jml_so2 = len(df_filter[df_filter["SO2"] > 0])
     
-    titik_sudah = df_filter["Kode_Titik"].nunique() if not df_filter.empty and "Kode_Titik" in df_filter.columns else 0
+    titik_sudah = (
+        df_filter["Kode_Titik"].nunique()
+        if not df_filter.empty and "Kode_Titik" in df_filter.columns
+        else 0
+    )
     
-    dari_file = pd.read_excel("master_daftar_alat.xlsx") if os.path.exists("master_daftar_alat.xlsx") else pd.DataFrame({"Nama_Alat": ["Gas Detector 1","Gas Detector 2","SO2 Detector 1","SO2 Detector 2"]})
+    dari_file = (
+        pd.read_excel("master_daftar_alat.xlsx")
+        if os.path.exists("master_daftar_alat.xlsx")
+        else pd.DataFrame({"Nama_Alat": ["Gas Detector 1", "Gas Detector 2", "SO2 Detector 1", "SO2 Detector 2"]})
+    )
     total_alat = len(dari_file)
     siap = 0
     if not df_alat.empty:
@@ -475,25 +591,32 @@ if menu == "Dashboard":
     with col_kiri:
         st.markdown(f"#### Data Pemantauan ({label_periode})")
         if not df_filter.empty:
-            kolom_tampil = [c for c in ["Waktu", "Shift", "Kode_Titik", "Lokasi", "H2S", "O2", "SO2", "Status"] if c in df_filter.columns]
+            kolom_tampil = [
+                c for c in ["Waktu", "Shift", "Kode_Titik", "Lokasi", "H2S", "O2", "SO2", "Status"]
+                if c in df_filter.columns
+            ]
             st.dataframe(df_filter[kolom_tampil], use_container_width=True, hide_index=True)
         else:
-            st.info("Belum ada data pada periode ini.")
+            st.info("Belum ada data pada filter ini.")
     
     with col_kanan:
         st.markdown("#### Status Alat (Terkini)")
         if not df_alat.empty:
             status_terakhir = df_alat.sort_values("Tanggal_Inspeksi").groupby("Nama_Alat").tail(1)
-            kolom_alat = [c for c in ["Nama_Alat", "Status", "Tanggal_Inspeksi", "Tanggal_Berikutnya"] if c in status_terakhir.columns]
+            kolom_alat = [
+                c for c in ["Nama_Alat", "Status", "Tanggal_Inspeksi", "Tanggal_Berikutnya"]
+                if c in status_terakhir.columns
+            ]
             st.dataframe(status_terakhir[kolom_alat], use_container_width=True, hide_index=True)
         else:
-            st.info("Belum ada data cek kesiapan alat.")
+            st.info("Belum ada data pada filter ini.")
     
     st.markdown("---")
     st.caption("Data Realtime Sistem Pemantauan Udara Sesaat • PEPC Zona 12")
 
 elif menu == "Input Data":
     tampilkan_halaman_input(st.session_state.nama_user)
+
 else:
     mapping = {
         "Review Data": "2. Review Data",

@@ -190,12 +190,27 @@ def tampilkan_halaman_input(nama_user=""):
             st.error(f"Masih ada data yang belum valid: **{', '.join(kesalahan)}**")
             return
         
+        # ===== Peringatan input dobel (tetap bisa simpan) =====
+        tgl_str = tanggal_in.strftime("%Y-%m-%d")
+        if os.path.exists(FILE_DB):
+            df_cek = pd.read_excel(FILE_DB)
+            if not df_cek.empty and all(c in df_cek.columns for c in ["Tanggal", "Shift", "Kode_Titik"]):
+                match_dobel = df_cek[
+                    (df_cek["Tanggal"].astype(str) == tgl_str) &
+                    (df_cek["Shift"] == shift_in) &
+                    (df_cek["Kode_Titik"].astype(str) == str(tp_in))
+                ]
+                if len(match_dobel) > 0:
+                    st.error(
+                        f"⚠️ Data untuk **{tp_in}** ({shift_in}, {tgl_str}) sudah pernah diinput. "
+                        f"Yakin ingin menyimpan lagi? Data tetap akan ditambahkan."
+                    )
+        
         # ===== STATUS BERDASARKAN BAKU MUTU =====
         ada_bahaya = False
         ada_waspada = False
         detail_status = []
         
-        # H2S — baku mutu 1 ppm
         if h2s > 0:
             if h2s > 1.0:
                 ada_bahaya = True
@@ -204,7 +219,6 @@ def tampilkan_halaman_input(nama_user=""):
                 ada_waspada = True
                 detail_status.append(f"Terdeteksi H2S {h2s} ppm (≤ baku mutu 1 ppm)")
         
-        # SO2 — baku mutu 0.057 ppm
         if so2 > 0:
             if so2 > 0.057:
                 ada_bahaya = True
@@ -213,7 +227,6 @@ def tampilkan_halaman_input(nama_user=""):
                 ada_waspada = True
                 detail_status.append(f"Terdeteksi SO2 {so2} ppm (≤ baku mutu 0,057 ppm)")
         
-        # CO — baku mutu 8.72 ppm
         if co > 0:
             if co > 8.72:
                 ada_bahaya = True
@@ -222,7 +235,6 @@ def tampilkan_halaman_input(nama_user=""):
                 ada_waspada = True
                 detail_status.append(f"Terdeteksi CO {co} ppm (≤ baku mutu 8,72 ppm)")
         
-        # O2 — di luar 19.5–23.5 = Bahaya
         if o2 < 19.5:
             ada_bahaya = True
             detail_status.append(f"O2 tidak normal: {o2}% (< 19,5%)")
@@ -230,7 +242,6 @@ def tampilkan_halaman_input(nama_user=""):
             ada_bahaya = True
             detail_status.append(f"O2 tidak normal: {o2}% (> 23,5%)")
         
-        # Noise — baku mutu 55 dB
         if noise is not None and noise > 55:
             ada_waspada = True
             detail_status.append(f"Kebisingan {noise} dB (melebihi baku mutu 55 dB)")
@@ -242,7 +253,6 @@ def tampilkan_halaman_input(nama_user=""):
         else:
             status_gas = "Aman"
         
-        tgl_str = tanggal_in.strftime("%Y-%m-%d")
         path_foto1 = simpan_foto(foto1, tgl_str, shift_in, tp_in, nomor=1)
         path_foto2 = simpan_foto(foto2, tgl_str, shift_in, tp_in, nomor=2) if foto2 is not None else ""
         
@@ -282,7 +292,6 @@ def tampilkan_halaman_input(nama_user=""):
             
         df_total.to_excel(FILE_DB, index=False)
         
-        # Notifikasi status
         if status_gas == "Bahaya":
             st.error("⚠️ STATUS **BAHAYA**: " + " | ".join(detail_status))
         elif status_gas == "Waspada":
