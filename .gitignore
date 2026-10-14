@@ -12,25 +12,25 @@ ENV/
 # Streamlit Secrets (PENTING)
 .streamlit/secrets.toml
 
-# Database & Master Data (JANGAN di-upload)
+# Semua Excel / data (SMTP, user, DB, email)
 *.xlsx
 *.xls
 *.csv
 database_*.xlsx
 master_*.xlsx
 pengaturan_*.xlsx
+smtp_config.xlsx
+status_laporan.xlsx
 
-# Folder data sensitif
+# Folder data
 foto_monitoring/
 peta_monitoring/
 tanda_tangan/
 
-# Editor
+# Editor & OS
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# OS
 .DS_Store
 Thumbs.db

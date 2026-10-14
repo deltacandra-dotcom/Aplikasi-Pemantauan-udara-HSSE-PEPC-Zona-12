@@ -211,6 +211,7 @@ if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = ""
     st.session_state.nama_user = ""
+    st.session_state.role = "petugas"
 
 # ====================== LOGIN DARI SECRETS ======================
 def cek_login(username, password):
@@ -218,17 +219,19 @@ def cek_login(username, password):
         users = st.secrets["users"]
         if username in users:
             user_data = users[username]
-            if user_data["password"] == password:
-                return True, user_data.get("nama", username)
-        return False, ""
+            if str(user_data["password"]) == str(password):
+                nama = user_data.get("nama", username)
+                role = str(user_data.get("role", "petugas")).strip().lower()
+                if role not in ["petugas", "diperiksa", "disetujui", "admin"]:
+                    role = "petugas"
+                return True, nama, role
+        return False, "", ""
     except Exception:
-        return False, ""
+        return False, "", ""
 
 if not st.session_state.logged_in:
     st.markdown("<br><br><br>", unsafe_allow_html=True)
-    
     col1, col2, col3 = st.columns([1.3, 1.4, 1.3])
-    
     with col2:
         st.markdown("""
             <div style='text-align:center; margin-bottom: 28px;'>
@@ -248,21 +251,20 @@ if not st.session_state.logged_in:
             submit = st.form_submit_button("Masuk", type="primary", use_container_width=True)
             
             if submit:
-                ok, nama = cek_login(username.strip(), password)
+                ok, nama, role = cek_login(username.strip(), password)
                 if ok:
                     st.session_state.logged_in = True
                     st.session_state.username = username.strip()
                     st.session_state.nama_user = nama
+                    st.session_state.role = role
                     st.session_state.menu = "Dashboard"
                     st.rerun()
                 else:
                     st.error("Username atau Password salah")
-    
     st.stop()
 
 # ====================== HEADER ======================
 col_logo, col_title = st.columns([0.7, 5.5])
-
 with col_logo:
     if os.path.exists("logo_pertamina.png"):
         st.image("logo_pertamina.png", width=100)
@@ -284,7 +286,19 @@ st.markdown("<hr style='margin:10px 0 18px 0;border:none;border-top:2px solid #B
 
 # ====================== SIDEBAR ======================
 with st.sidebar:
-    st.markdown(f"<div class='user-info'>{st.session_state.nama_user}</div>", unsafe_allow_html=True)
+    role = st.session_state.get("role", "petugas")
+    role_label = {
+        "petugas": "Petugas",
+        "diperiksa": "Environment Officer",
+        "disetujui": "Superintendent HSSE",
+        "admin": "Admin"
+    }.get(role, role)
+    
+    st.markdown(
+        "<div class='user-info'>" + st.session_state.nama_user
+        + "<br><span style='font-size:12px;opacity:0.85;'>" + role_label + "</span></div>",
+        unsafe_allow_html=True
+    )
     
     if "menu" not in st.session_state:
         st.session_state.menu = "Dashboard"
@@ -293,16 +307,16 @@ with st.sidebar:
         "Dashboard",
         "Input Data",
         "Review Data",
-        "Download Laporan",
-        "Cek Kesiapan Alat",
-        "Kelola Master Data"
+        "Download Laporan"
     ]
-    
-    if st.session_state.username == "admin":
+    if role in ["diperiksa", "disetujui", "admin"]:
+        menus.append("Persetujuan Laporan")
+    menus.extend(["Cek Kesiapan Alat", "Kelola Master Data"])
+    if role == "admin" or st.session_state.username == "admin":
         menus.append("Kelola User")
     
     for m in menus:
-        if st.button(m, key=f"btn_{m}", use_container_width=True):
+        if st.button(m, key="btn_" + m, use_container_width=True):
             st.session_state.menu = m
             st.rerun()
     
@@ -318,7 +332,7 @@ with st.sidebar:
             st.download_button(
                 label="Backup Database",
                 data=f,
-                file_name=f"backup_database_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                file_name="backup_database_" + datetime.now().strftime("%Y%m%d") + ".xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
                 key="btn_backup"
@@ -338,12 +352,7 @@ if menu == "Dashboard":
     st.markdown("##### Filter Periode")
     col_f1, col_f2, col_f3 = st.columns([1.8, 1.5, 2])
     with col_f1:
-        mode_periode = st.radio(
-            "Pilih Periode",
-            ["Harian", "Bulanan", "Tahunan"],
-            horizontal=True,
-            key="mode_dash"
-        )
+        mode_periode = st.radio("Pilih Periode", ["Harian", "Bulanan", "Tahunan"], horizontal=True, key="mode_dash")
     with col_f2:
         if mode_periode == "Harian":
             tgl_dash = st.date_input("Tanggal", datetime.now(), key="tgl_dash")
@@ -373,7 +382,6 @@ if menu == "Dashboard":
     
     if not df_db.empty and "Tanggal" in df_db.columns:
         df_db["Tanggal_dt"] = pd.to_datetime(df_db["Tanggal"], errors="coerce")
-        
         if mode_periode == "Harian":
             tgl_str_harian = tgl_dash.strftime("%Y-%m-%d")
             df_filter = df_db[df_db["Tanggal"] == tgl_str_harian].copy()
@@ -389,14 +397,13 @@ if menu == "Dashboard":
                 (df_db["Tanggal_dt"].dt.month == bln_angka) &
                 (df_db["Tanggal_dt"].dt.year == thn_dash)
             ].copy()
-            label_periode = f"{bln_dash} {thn_dash}"
+            label_periode = bln_dash + " " + str(thn_dash)
         else:
             df_filter = df_db[df_db["Tanggal_dt"].dt.year == thn_dash].copy()
-            label_periode = f"Tahun {thn_dash}"
+            label_periode = "Tahun " + str(thn_dash)
     
-    st.caption(f"Menampilkan data periode: **{label_periode}**")
+    st.caption("Menampilkan data periode: **" + label_periode + "**")
     
-    # ===== ALERT BAHAYA & WASPADA =====
     if not df_filter.empty and "Status" in df_filter.columns:
         df_bahaya = df_filter[df_filter["Status"].isin(["Bahaya", "Terpapar"])]
         if not df_bahaya.empty:
@@ -407,29 +414,24 @@ if menu == "Dashboard":
                 detail = []
                 try:
                     if float(r.get("H2S", 0) or 0) > 0:
-                        detail.append(f"H2S {r['H2S']} ppm")
+                        detail.append("H2S " + str(r["H2S"]) + " ppm")
                     if float(r.get("SO2", 0) or 0) > 0:
-                        detail.append(f"SO2 {r['SO2']} ppm")
+                        detail.append("SO2 " + str(r["SO2"]) + " ppm")
                     if float(r.get("CO", 0) or 0) > 0:
-                        detail.append(f"CO {r['CO']} ppm")
+                        detail.append("CO " + str(r["CO"]) + " ppm")
                     o2v = float(r.get("O2", 20.9) or 20.9)
                     if o2v < 19.5 or o2v > 23.5:
-                        detail.append(f"O2 {o2v}%")
+                        detail.append("O2 " + str(o2v) + "%")
                 except Exception:
                     pass
                 det = " — " + ", ".join(detail) if detail else ""
-                baris_bahaya.append(f"• <b>{kode}</b> ({lokasi}){det}")
-            
-            st.markdown(f"""
-            <div class="alert-bahaya">
-                <div style="font-weight:700;color:#C62828;margin-bottom:6px;">
-                    ⚠️ STATUS BAHAYA
-                </div>
-                <div style="color:#B71C1C;font-size:13.5px;line-height:1.6;">
-                    {"<br>".join(baris_bahaya)}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+                baris_bahaya.append("• <b>" + str(kode) + "</b> (" + str(lokasi) + ")" + det)
+            st.markdown(
+                '<div class="alert-bahaya"><div style="font-weight:700;color:#C62828;margin-bottom:6px;">STATUS BAHAYA</div>'
+                + '<div style="color:#B71C1C;font-size:13.5px;line-height:1.6;">'
+                + "<br>".join(baris_bahaya) + "</div></div>",
+                unsafe_allow_html=True
+            )
         
         df_waspada = df_filter[df_filter["Status"].isin(["Waspada", "O2 Tidak Normal"])]
         if not df_waspada.empty:
@@ -440,97 +442,59 @@ if menu == "Dashboard":
                 detail = []
                 try:
                     if float(r.get("H2S", 0) or 0) > 0:
-                        detail.append(f"H2S {r['H2S']} ppm")
+                        detail.append("H2S " + str(r["H2S"]) + " ppm")
                     if float(r.get("SO2", 0) or 0) > 0:
-                        detail.append(f"SO2 {r['SO2']} ppm")
+                        detail.append("SO2 " + str(r["SO2"]) + " ppm")
                     if float(r.get("CO", 0) or 0) > 0:
-                        detail.append(f"CO {r['CO']} ppm")
+                        detail.append("CO " + str(r["CO"]) + " ppm")
                     if r.get("Noise") is not None and float(r.get("Noise", 0) or 0) > 55:
-                        detail.append(f"Noise {r['Noise']} dB")
+                        detail.append("Noise " + str(r["Noise"]) + " dB")
                 except Exception:
                     pass
                 det = " — " + ", ".join(detail) if detail else ""
-                baris_waspada.append(f"• <b>{kode}</b> ({lokasi}){det}")
-            
-            st.markdown(f"""
-            <div class="alert-waspada">
-                <div style="font-weight:700;color:#F57F17;margin-bottom:6px;">
-                    ⚡ STATUS WASPADA
-                </div>
-                <div style="color:#E65100;font-size:13.5px;line-height:1.6;">
-                    {"<br>".join(baris_waspada)}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+                baris_waspada.append("• <b>" + str(kode) + "</b> (" + str(lokasi) + ")" + det)
+            st.markdown(
+                '<div class="alert-waspada"><div style="font-weight:700;color:#F57F17;margin-bottom:6px;">STATUS WASPADA</div>'
+                + '<div style="color:#E65100;font-size:13.5px;line-height:1.6;">'
+                + "<br>".join(baris_waspada) + "</div></div>",
+                unsafe_allow_html=True
+            )
     
-    # ===== DATA HARI INI =====
     if mode_periode == "Harian" and tgl_str_harian:
         def cek_shift(df, shift_name):
             if df.empty:
                 return 0, list_titik
             ds = df[df["Shift"] == shift_name] if "Shift" in df.columns else pd.DataFrame()
-            sudah = (
-                ds["Kode_Titik"].astype(str).unique().tolist()
-                if not ds.empty and "Kode_Titik" in ds.columns
-                else []
-            )
+            sudah = ds["Kode_Titik"].astype(str).unique().tolist() if not ds.empty and "Kode_Titik" in ds.columns else []
             belum = [t for t in list_titik if t not in sudah]
             return len(sudah), belum
         
         n_ds, belum_ds = cek_shift(df_filter, "Day Shift")
         n_ns, belum_ns = cek_shift(df_filter, "Night Shift")
         total_tp = len(list_titik)
-        
-        teks_ds = f"Day Shift &nbsp;<b>{n_ds}/{total_tp}</b> titik"
-        if belum_ds:
-            teks_ds += f" &nbsp;|&nbsp; Belum: {', '.join(belum_ds)}"
-        else:
-            teks_ds += " &nbsp;|&nbsp; Lengkap ✅"
-        
-        teks_ns = f"Night Shift &nbsp;<b>{n_ns}/{total_tp}</b> titik"
-        if belum_ns:
-            teks_ns += f" &nbsp;|&nbsp; Belum: {', '.join(belum_ns)}"
-        else:
-            teks_ns += " &nbsp;|&nbsp; Lengkap ✅"
-        
-        st.markdown(f"""
-        <div class="info-hari">
-            <div style="font-weight:700;color:#0D47A1;margin-bottom:6px;">
-                Data hari ini: {label_periode}
-            </div>
-            <div style="color:#1565C0;font-size:13.5px;line-height:1.7;">
-                {teks_ds}<br>{teks_ns}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        teks_ds = "Day Shift &nbsp;<b>" + str(n_ds) + "/" + str(total_tp) + "</b> titik"
+        teks_ds += (" &nbsp;|&nbsp; Belum: " + ", ".join(belum_ds)) if belum_ds else " &nbsp;|&nbsp; Lengkap"
+        teks_ns = "Night Shift &nbsp;<b>" + str(n_ns) + "/" + str(total_tp) + "</b> titik"
+        teks_ns += (" &nbsp;|&nbsp; Belum: " + ", ".join(belum_ns)) if belum_ns else " &nbsp;|&nbsp; Lengkap"
+        st.markdown(
+            '<div class="info-hari"><div style="font-weight:700;color:#0D47A1;margin-bottom:6px;">Data hari ini: '
+            + label_periode + '</div><div style="color:#1565C0;font-size:13.5px;line-height:1.7;">'
+            + teks_ds + "<br>" + teks_ns + "</div></div>",
+            unsafe_allow_html=True
+        )
     
-    # Statistik
     total_data = len(df_filter)
-    jml_aman = 0
-    jml_waspada = 0
-    jml_bahaya = 0
+    jml_aman = jml_waspada = jml_bahaya = 0
     if not df_filter.empty and "Status" in df_filter.columns:
         jml_aman = len(df_filter[df_filter["Status"] == "Aman"])
         jml_waspada = len(df_filter[df_filter["Status"].isin(["Waspada", "O2 Tidak Normal"])])
         jml_bahaya = len(df_filter[df_filter["Status"].isin(["Bahaya", "Terpapar"])])
-    
     pct_aman = (jml_aman / total_data * 100) if total_data > 0 else 0
     pct_waspada = (jml_waspada / total_data * 100) if total_data > 0 else 0
     pct_bahaya = (jml_bahaya / total_data * 100) if total_data > 0 else 0
-    
-    jml_h2s = 0
-    jml_so2 = 0
-    if not df_filter.empty:
-        if "H2S" in df_filter.columns:
-            jml_h2s = len(df_filter[df_filter["H2S"] > 0])
-        if "SO2" in df_filter.columns:
-            jml_so2 = len(df_filter[df_filter["SO2"] > 0])
-    
-    titik_sudah = (
-        df_filter["Kode_Titik"].nunique()
-        if not df_filter.empty and "Kode_Titik" in df_filter.columns
-        else 0
-    )
+    jml_h2s = len(df_filter[df_filter["H2S"] > 0]) if not df_filter.empty and "H2S" in df_filter.columns else 0
+    jml_so2 = len(df_filter[df_filter["SO2"] > 0]) if not df_filter.empty and "SO2" in df_filter.columns else 0
+    titik_sudah = df_filter["Kode_Titik"].nunique() if not df_filter.empty and "Kode_Titik" in df_filter.columns else 0
     
     dari_file = (
         pd.read_excel("master_daftar_alat.xlsx")
@@ -546,107 +510,82 @@ if menu == "Dashboard":
                 siap += 1
     
     c1, c2, c3, c4 = st.columns(4)
-    
     with c1:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Total Data</div>
-            <div class="metric-value">{total_data}</div>
-            <div class="metric-sub" style="color:#64748B;">pengukuran</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
+        st.markdown(
+            '<div class="metric-card"><div class="metric-label">Total Data</div>'
+            '<div class="metric-value">' + str(total_data) + '</div>'
+            '<div class="metric-sub" style="color:#64748B;">pengukuran</div></div>',
+            unsafe_allow_html=True
+        )
     with c2:
         warna_aman = "#2E7D32" if pct_aman >= 90 else "#F9A825" if pct_aman >= 70 else "#C62828"
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Status Aman</div>
-            <div class="metric-value" style="color:{warna_aman};">{jml_aman}</div>
-            <div class="metric-sub" style="color:{warna_aman};">{pct_aman:.1f}%</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
+        st.markdown(
+            '<div class="metric-card"><div class="metric-label">Status Aman</div>'
+            '<div class="metric-value" style="color:' + warna_aman + ';">' + str(jml_aman) + '</div>'
+            '<div class="metric-sub" style="color:' + warna_aman + ';">' + "{:.1f}".format(pct_aman) + '%</div></div>',
+            unsafe_allow_html=True
+        )
     with c3:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Waspada</div>
-            <div class="metric-value" style="color:#F9A825;">{jml_waspada}</div>
-            <div class="metric-sub" style="color:#F9A825;">{pct_waspada:.1f}%</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
+        st.markdown(
+            '<div class="metric-card"><div class="metric-label">Waspada</div>'
+            '<div class="metric-value" style="color:#F9A825;">' + str(jml_waspada) + '</div>'
+            '<div class="metric-sub" style="color:#F9A825;">' + "{:.1f}".format(pct_waspada) + '%</div></div>',
+            unsafe_allow_html=True
+        )
     with c4:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Bahaya</div>
-            <div class="metric-value" style="color:#C62828;">{jml_bahaya}</div>
-            <div class="metric-sub" style="color:#C62828;">{pct_bahaya:.1f}%</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(
+            '<div class="metric-card"><div class="metric-label">Bahaya</div>'
+            '<div class="metric-value" style="color:#C62828;">' + str(jml_bahaya) + '</div>'
+            '<div class="metric-sub" style="color:#C62828;">' + "{:.1f}".format(pct_bahaya) + '%</div></div>',
+            unsafe_allow_html=True
+        )
     
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-    
     c5, c6, c7, c8 = st.columns(4)
-    
     with c5:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">H2S Terdeteksi</div>
-            <div class="metric-value">{jml_h2s}</div>
-            <div class="metric-sub" style="color:#64748B;">kali</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
+        st.markdown(
+            '<div class="metric-card"><div class="metric-label">H2S Terdeteksi</div>'
+            '<div class="metric-value">' + str(jml_h2s) + '</div>'
+            '<div class="metric-sub" style="color:#64748B;">kali</div></div>',
+            unsafe_allow_html=True
+        )
     with c6:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">SO2 Terdeteksi</div>
-            <div class="metric-value">{jml_so2}</div>
-            <div class="metric-sub" style="color:#64748B;">kali</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
+        st.markdown(
+            '<div class="metric-card"><div class="metric-label">SO2 Terdeteksi</div>'
+            '<div class="metric-value">' + str(jml_so2) + '</div>'
+            '<div class="metric-sub" style="color:#64748B;">kali</div></div>',
+            unsafe_allow_html=True
+        )
     with c7:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Titik Terukur</div>
-            <div class="metric-value">{titik_sudah}</div>
-            <div class="metric-sub" style="color:#64748B;">titik pantau</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
+        st.markdown(
+            '<div class="metric-card"><div class="metric-label">Titik Terukur</div>'
+            '<div class="metric-value">' + str(titik_sudah) + '</div>'
+            '<div class="metric-sub" style="color:#64748B;">titik pantau</div></div>',
+            unsafe_allow_html=True
+        )
     with c8:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Alat Siap Pakai</div>
-            <div class="metric-value">{siap}<span style="font-size:16px;color:#64748B;"> / {total_alat}</span></div>
-            <div class="metric-sub" style="color:#64748B;">unit alat</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(
+            '<div class="metric-card"><div class="metric-label">Alat Siap Pakai</div>'
+            '<div class="metric-value">' + str(siap)
+            + '<span style="font-size:16px;color:#64748B;"> / ' + str(total_alat) + '</span></div>'
+            '<div class="metric-sub" style="color:#64748B;">unit alat</div></div>',
+            unsafe_allow_html=True
+        )
     
     st.markdown("<div style='height:22px'></div>", unsafe_allow_html=True)
-    
     col_kiri, col_kanan = st.columns(2)
-    
     with col_kiri:
-        st.markdown(f"#### Data Pemantauan ({label_periode})")
+        st.markdown("#### Data Pemantauan (" + label_periode + ")")
         if not df_filter.empty:
-            kolom_tampil = [
-                c for c in ["Waktu", "Shift", "Kode_Titik", "Lokasi", "H2S", "O2", "SO2", "Status"]
-                if c in df_filter.columns
-            ]
+            kolom_tampil = [c for c in ["Waktu", "Shift", "Kode_Titik", "Lokasi", "H2S", "O2", "SO2", "Status"] if c in df_filter.columns]
             st.dataframe(df_filter[kolom_tampil], use_container_width=True, hide_index=True)
         else:
             st.info("Belum ada data pada filter ini.")
-    
     with col_kanan:
         st.markdown("#### Status Alat (Terkini)")
         if not df_alat.empty:
             status_terakhir = df_alat.sort_values("Tanggal_Inspeksi").groupby("Nama_Alat").tail(1)
-            kolom_alat = [
-                c for c in ["Nama_Alat", "Status", "Tanggal_Inspeksi", "Tanggal_Berikutnya"]
-                if c in status_terakhir.columns
-            ]
+            kolom_alat = [c for c in ["Nama_Alat", "Status", "Tanggal_Inspeksi", "Tanggal_Berikutnya"] if c in status_terakhir.columns]
             st.dataframe(status_terakhir[kolom_alat], use_container_width=True, hide_index=True)
         else:
             st.info("Belum ada data pada filter ini.")
@@ -661,14 +600,19 @@ else:
     mapping = {
         "Review Data": "2. Review Data",
         "Download Laporan": "3. Download Laporan",
+        "Persetujuan Laporan": "3b. Persetujuan Laporan",
         "Cek Kesiapan Alat": "4. Cek Kesiapan Alat",
         "Kelola Master Data": "5. Kelola Master Data",
         "Kelola User": "6. Kelola User"
     }
     menu_lama = mapping.get(menu, menu)
-    tampilkan_halaman_output(menu_lama, st.session_state.nama_user, st.session_state.username)
+    tampilkan_halaman_output(
+        menu_lama,
+        st.session_state.nama_user,
+        st.session_state.username,
+        st.session_state.get("role", "petugas")
+    )
 
-# Footer
 st.markdown("""
 <div class="footer">
     Digitalisasi Monitoring Kualitas Udara • Delta Candra • KP Unigoro 2026

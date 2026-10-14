@@ -1,6 +1,9 @@
 import streamlit as st
 import pandas as pd
 import os
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 from io import BytesIO
 from openpyxl import Workbook
@@ -21,6 +24,10 @@ FILE_MASTER_ALAT = "master_daftar_alat.xlsx"
 FILE_USER = "master_users.xlsx"
 FILE_PENGATURAN = "pengaturan_laporan.xlsx"
 FILE_KESIMPULAN = "master_kesimpulan.xlsx"
+FILE_STATUS = "status_laporan.xlsx"
+FILE_EMAIL_DIPERIKSA = "master_email_diperiksa.xlsx"
+FILE_EMAIL_DISETUJUI = "master_email_disetujui.xlsx"
+FILE_SMTP = "smtp_config.xlsx"
 FOLDER_PETA = "peta_monitoring"
 FOLDER_TTD = "tanda_tangan"
 
@@ -30,7 +37,7 @@ DEFAULT_TITIK = {
     "TP 3": {"Lokasi": "Petak 28", "Lat": "-7.1256", "Long": "111.6801", "LatNS": "-7.1256", "LongNS": "111.6801"},
     "TP 4": {"Lokasi": "Crossing Gayam", "Lat": "-7.1267", "Long": "111.6812", "LatNS": "-7.1267", "LongNS": "111.6812"},
     "TP 5": {"Lokasi": "Selatan Dormitory", "Lat": "-7.1278", "Long": "111.6823", "LatNS": "-7.1278", "LongNS": "111.6823"},
-    "TP 6": {"Lokasi": "Dusun Besaran Ngasem", "Lat": "-7.1289", "Long": "111.6834", "LatNS": "-7.1289", "LongNS": "111.6834"}
+    "TP 6": {"Lokasi": "Dusun Besaran Ngasem", "Lat": "-7.1289", "Long": "111.6834", "LatNS": "-7.1289", "LongNS": "111.6834"},
 }
 
 DEFAULT_ALAT = ["Gas Detector 1", "Gas Detector 2", "SO2 Detector 1", "SO2 Detector 2"]
@@ -39,8 +46,16 @@ DEFAULT_KESIMPULAN = [
     "Tidak terdeteksi adanya Gas H2S dan SO2 di seluruh lokasi pemantauan",
     "Terdeteksi Gas H2S di bawah baku mutu",
     "Terdeteksi Gas SO2, perlu investigasi lanjutan",
-    "Terdeteksi Gas H2S dan SO2, segera tindak lanjut"
+    "Terdeteksi Gas H2S dan SO2, segera tindak lanjut",
 ]
+
+STATUS_TEXT_COLS = [
+    "Tanggal", "Status", "Diajukan_Oleh", "Waktu_Ajukan",
+    "Diperiksa_Oleh", "Waktu_Diperiksa", "Disetujui_Oleh", "Waktu_Disetujui",
+    "Ditolak_Oleh", "Waktu_Tolak", "Catatan_Tolak",
+    "Email_Diperiksa", "Email_Disetujui",
+]
+
 
 def load_titik():
     if os.path.exists(FILE_TITIK):
@@ -52,34 +67,33 @@ def load_titik():
                 "Lat": str(row["Latitude"]),
                 "Long": str(row["Longitude"]),
                 "LatNS": str(row["Latitude_NS"]),
-                "LongNS": str(row["Longitude_NS"])
+                "LongNS": str(row["Longitude_NS"]),
             }
         return titik
-    else:
-        data = []
-        for kode, v in DEFAULT_TITIK.items():
-            data.append({
-                "Kode": kode, "Lokasi": v["Lokasi"],
-                "Latitude": v["Lat"], "Longitude": v["Long"],
-                "Latitude_NS": v["LatNS"], "Longitude_NS": v["LongNS"]
-            })
-        pd.DataFrame(data).to_excel(FILE_TITIK, index=False)
-        return DEFAULT_TITIK
+    data = []
+    for kode, v in DEFAULT_TITIK.items():
+        data.append({
+            "Kode": kode, "Lokasi": v["Lokasi"],
+            "Latitude": v["Lat"], "Longitude": v["Long"],
+            "Latitude_NS": v["LatNS"], "Longitude_NS": v["LongNS"],
+        })
+    pd.DataFrame(data).to_excel(FILE_TITIK, index=False)
+    return DEFAULT_TITIK
+
 
 def load_daftar_alat():
     if os.path.exists(FILE_MASTER_ALAT):
-        df = pd.read_excel(FILE_MASTER_ALAT)
-        return df["Nama_Alat"].tolist()
-    else:
-        pd.DataFrame({"Nama_Alat": DEFAULT_ALAT}).to_excel(FILE_MASTER_ALAT, index=False)
-        return DEFAULT_ALAT
+        return pd.read_excel(FILE_MASTER_ALAT)["Nama_Alat"].tolist()
+    pd.DataFrame({"Nama_Alat": DEFAULT_ALAT}).to_excel(FILE_MASTER_ALAT, index=False)
+    return DEFAULT_ALAT
+
 
 def load_pengaturan_laporan():
     default = {
         "Nama_Diperiksa": "Ian T.M",
         "Jabatan_Diperiksa": "Environment Officer",
         "Nama_Disetujui": "Ahmad Afifuddin",
-        "Jabatan_Disetujui": "Superintendent Field HSSE"
+        "Jabatan_Disetujui": "Superintendent Field HSSE",
     }
     if os.path.exists(FILE_PENGATURAN):
         try:
@@ -88,298 +102,410 @@ def load_pengaturan_laporan():
                 "Nama_Diperiksa": str(df.loc[0, "Nama_Diperiksa"]) if "Nama_Diperiksa" in df.columns else default["Nama_Diperiksa"],
                 "Jabatan_Diperiksa": str(df.loc[0, "Jabatan_Diperiksa"]) if "Jabatan_Diperiksa" in df.columns else default["Jabatan_Diperiksa"],
                 "Nama_Disetujui": str(df.loc[0, "Nama_Disetujui"]) if "Nama_Disetujui" in df.columns else default["Nama_Disetujui"],
-                "Jabatan_Disetujui": str(df.loc[0, "Jabatan_Disetujui"]) if "Jabatan_Disetujui" in df.columns else default["Jabatan_Disetujui"]
+                "Jabatan_Disetujui": str(df.loc[0, "Jabatan_Disetujui"]) if "Jabatan_Disetujui" in df.columns else default["Jabatan_Disetujui"],
             }
-        except:
+        except Exception:
             return default
     return default
 
+
+def _ensure_status_str(df):
+    for c in STATUS_TEXT_COLS:
+        if c not in df.columns:
+            df[c] = ""
+        df[c] = df[c].astype(object)
+        df[c] = df[c].apply(lambda x: "" if pd.isna(x) or str(x).lower() == "nan" else str(x))
+    return df
+
+
+def load_status_laporan():
+    if os.path.exists(FILE_STATUS):
+        return _ensure_status_str(pd.read_excel(FILE_STATUS))
+    return pd.DataFrame(columns=STATUS_TEXT_COLS)
+
+
+def get_status_tanggal(tgl_str):
+    df = load_status_laporan()
+    if df.empty:
+        return "Draft"
+    match = df[df["Tanggal"].astype(str) == str(tgl_str)]
+    if len(match) == 0:
+        return "Draft"
+    return str(match.iloc[-1]["Status"])
+
+
+def upsert_status(tgl_str, **kwargs):
+    df = load_status_laporan()
+    tgl_str = str(tgl_str)
+    df = _ensure_status_str(df)
+    if not df.empty and (df["Tanggal"].astype(str) == tgl_str).any():
+        idx = df.index[df["Tanggal"].astype(str) == tgl_str][-1]
+        for k, v in kwargs.items():
+            if k not in df.columns:
+                df[k] = ""
+            df.at[idx, k] = "" if v is None else str(v)
+    else:
+        row = {c: "" for c in STATUS_TEXT_COLS}
+        row["Tanggal"] = tgl_str
+        row["Status"] = str(kwargs.get("Status", "Draft"))
+        for k, v in kwargs.items():
+            row[k] = "" if v is None else str(v)
+        df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+    df = _ensure_status_str(df)
+    df.to_excel(FILE_STATUS, index=False)
+
+
+def load_email_list(file_path, default_list=None):
+    if default_list is None:
+        default_list = []
+    if os.path.exists(file_path):
+        df = pd.read_excel(file_path)
+        if "Email" not in df.columns:
+            return list(default_list)
+        return [str(x).strip() for x in df["Email"].tolist() if str(x).strip() and str(x).lower() != "nan"]
+    if default_list:
+        pd.DataFrame({"Email": default_list}).to_excel(file_path, index=False)
+    return list(default_list)
+
+
+def load_smtp_config():
+    """Secrets dulu (Cloud), fallback smtp_config.xlsx (lokal)."""
+    try:
+        em = str(st.secrets["smtp"]["email"]).strip()
+        pw = str(st.secrets["smtp"]["password"]).strip().replace(" ", "")
+        if em and pw:
+            return em, pw
+    except Exception:
+        pass
+    default_email = "pengirimaplikasi@gmail.com"
+    default_pass = "spbckieaunuocqca"
+    if os.path.exists(FILE_SMTP):
+        try:
+            df = pd.read_excel(FILE_SMTP)
+            em = str(df.loc[0, "Email"]).strip() if "Email" in df.columns else default_email
+            pw = str(df.loc[0, "Password"]).strip().replace(" ", "") if "Password" in df.columns else default_pass
+            if not em or em.lower() == "nan":
+                em = default_email
+            if not pw or pw.lower() == "nan":
+                pw = default_pass
+            return em, pw
+        except Exception:
+            return default_email, default_pass
+    try:
+        pd.DataFrame([{"Email": default_email, "Password": default_pass}]).to_excel(FILE_SMTP, index=False)
+    except Exception:
+        pass
+    return default_email, default_pass
+
+
+def save_smtp_config(email, password):
+    try:
+        pd.DataFrame([{
+            "Email": str(email).strip(),
+            "Password": str(password).strip().replace(" ", ""),
+        }]).to_excel(FILE_SMTP, index=False)
+    except Exception:
+        pass
+
+
+def kirim_email(to_email, subject, body):
+    to_email = str(to_email or "").strip()
+    if not to_email or "@" not in to_email:
+        return False, "Alamat email tujuan tidak valid"
+    smtp_email, smtp_pass = load_smtp_config()
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = smtp_email
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as server:
+            server.login(smtp_email, smtp_pass)
+            server.sendmail(smtp_email, [to_email], msg.as_string())
+        return True, "Email terkirim ke " + to_email
+    except Exception as e:
+        return False, "Gagal kirim email: " + str(e)
+
+
 def add_header_logo(canvas, doc):
     canvas.saveState()
-    logo_skk = "logo_skkmigas.png"
-    logo_pepc = "logo_pertamina_epcepu.png"
-    if os.path.exists(logo_skk):
+    if os.path.exists("logo_skkmigas.png"):
         try:
-            canvas.drawImage(logo_skk, 1.8*cm, A4[1] - 1.8*cm, width=2.6*cm, height=1.0*cm, mask='auto')
-        except:
+            canvas.drawImage("logo_skkmigas.png", 1.8 * cm, A4[1] - 1.8 * cm, width=2.6 * cm, height=1.0 * cm, mask="auto")
+        except Exception:
             pass
-    if os.path.exists(logo_pepc):
+    if os.path.exists("logo_pertamina_epcepu.png"):
         try:
-            canvas.drawImage(logo_pepc, A4[0] - 1.8*cm - 3.0*cm, A4[1] - 1.8*cm, width=3.0*cm, height=1.0*cm, mask='auto')
-        except:
+            canvas.drawImage("logo_pertamina_epcepu.png", A4[0] - 1.8 * cm - 3.0 * cm, A4[1] - 1.8 * cm, width=3.0 * cm, height=1.0 * cm, mask="auto")
+        except Exception:
             pass
     canvas.restoreState()
+
 
 def buat_excel_harian_resmi(df_db_all, tgl_target):
     titik_data = load_titik()
     wb = Workbook()
     ws = wb.active
     ws.title = "Laporan Harian"
-    
-    font_title = Font(name='Arial', size=12, bold=True)
-    font_header = Font(name='Arial', size=10, bold=True, color="FFFFFF")
+    font_title = Font(name="Arial", size=12, bold=True)
+    font_header = Font(name="Arial", size=10, bold=True, color="FFFFFF")
     fill_header = PatternFill(start_color="0288D1", end_color="0288D1", fill_type="solid")
-    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
-    center = Alignment(horizontal='center', vertical='center', wrap_text=True)
-    left = Alignment(horizontal='left', vertical='center')
-    
-    ws.merge_cells('A1:I1')
+    thin_border = Border(
+        left=Side(style="thin"), right=Side(style="thin"),
+        top=Side(style="thin"), bottom=Side(style="thin"),
+    )
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left = Alignment(horizontal="left", vertical="center")
+    ws.merge_cells("A1:I1")
     ws.cell(row=1, column=1, value="LAPORAN PEMANTAUAN UDARA SESAAT - GPF JTB").font = font_title
-    ws.cell(row=1, column=1).alignment = Alignment(horizontal='center')
-    
-    ws.merge_cells('A2:I2')
-    ws.cell(row=2, column=1, value=f"Tanggal: {tgl_target.strftime('%d %B %Y')} | Pertamina EP Cepu Zona 12").font = Font(name='Arial', size=10, italic=True)
-    ws.cell(row=2, column=1).alignment = Alignment(horizontal='center')
-    
+    ws.cell(row=1, column=1).alignment = Alignment(horizontal="center")
+    ws.merge_cells("A2:I2")
+    ws.cell(
+        row=2, column=1,
+        value="Tanggal: " + tgl_target.strftime("%d %B %Y") + " | Pertamina EP Cepu Zona 12",
+    ).font = Font(name="Arial", size=10, italic=True)
+    ws.cell(row=2, column=1).alignment = Alignment(horizontal="center")
     ws.cell(row=4, column=1, value="1. Daftar Titik Pantau dan Koordinat").font = font_title
-    headers_koord = ["No.", "Kode", "Lokasi", "Latitude", "Longitude", "Latitude NS", "Longitude NS"]
-    for col, text in enumerate(headers_koord, 1):
+    for col, text in enumerate(
+        ["No.", "Kode", "Lokasi", "Latitude", "Longitude", "Latitude NS", "Longitude NS"], 1
+    ):
         cell = ws.cell(row=5, column=col, value=text)
         cell.font = font_header
         cell.fill = fill_header
         cell.alignment = center
         cell.border = thin_border
-    
     for i, (kode, info) in enumerate(titik_data.items(), 1):
         row = 5 + i
-        data = [i, kode, info["Lokasi"], info["Lat"], info["Long"], info["LatNS"], info["LongNS"]]
-        for col, val in enumerate(data, 1):
+        for col, val in enumerate(
+            [i, kode, info["Lokasi"], info["Lat"], info["Long"], info["LatNS"], info["LongNS"]], 1
+        ):
             cell = ws.cell(row=row, column=col, value=val)
             cell.border = thin_border
             cell.alignment = left if col == 3 else center
-    
     df_f = pd.DataFrame()
     if not df_db_all.empty:
         try:
             df_f = df_db_all[df_db_all["Tanggal"] == tgl_target.strftime("%Y-%m-%d")].reset_index(drop=True)
-        except:
+        except Exception:
             pass
-    
     headers_ukur = ["No.", "Kode", "Lokasi", "Waktu", "H2S (ppm)", "O2 (%)", "CO (ppm)", "LEL (%)", "SO2 (ppm)"]
-    
     start_day = 14
-    ws.cell(row=start_day-1, column=1, value="2. Hasil Pengukuran - Day Shift").font = font_title
+    ws.cell(row=start_day - 1, column=1, value="2. Hasil Pengukuran - Day Shift").font = font_title
     for col, text in enumerate(headers_ukur, 1):
         cell = ws.cell(row=start_day, column=col, value=text)
         cell.font = font_header
         cell.fill = fill_header
         cell.alignment = center
         cell.border = thin_border
-    
     df_day = df_f[df_f["Shift"] == "Day Shift"] if not df_f.empty else pd.DataFrame()
     for i, (kode, info) in enumerate(titik_data.items(), 1):
         row = start_day + i
         match = df_day[df_day["Kode_Titik"] == kode] if not df_day.empty else pd.DataFrame()
         if len(match) > 0:
             m = match.iloc[0]
-            vals = [i, kode, info["Lokasi"], str(m.get("Waktu","")),
-                    f"{float(m.get('H2S',0)):.2f}", f"{float(m.get('O2',0)):.1f}",
-                    f"{float(m.get('CO',0)):.1f}", f"{float(m.get('LEL',0)):.1f}",
-                    f"{float(m.get('SO2',0)):.2f}"]
+            vals = [
+                i, kode, info["Lokasi"], str(m.get("Waktu", "")),
+                "{:.2f}".format(float(m.get("H2S", 0))),
+                "{:.1f}".format(float(m.get("O2", 0))),
+                "{:.1f}".format(float(m.get("CO", 0))),
+                "{:.1f}".format(float(m.get("LEL", 0))),
+                "{:.2f}".format(float(m.get("SO2", 0))),
+            ]
         else:
             vals = [i, kode, info["Lokasi"], "-", "-", "-", "-", "-", "-"]
         for col, val in enumerate(vals, 1):
             cell = ws.cell(row=row, column=col, value=val)
             cell.border = thin_border
             cell.alignment = left if col == 3 else center
-    
     start_night = 23
-    ws.cell(row=start_night-1, column=1, value="3. Hasil Pengukuran - Night Shift").font = font_title
+    ws.cell(row=start_night - 1, column=1, value="3. Hasil Pengukuran - Night Shift").font = font_title
     for col, text in enumerate(headers_ukur, 1):
         cell = ws.cell(row=start_night, column=col, value=text)
         cell.font = font_header
         cell.fill = fill_header
         cell.alignment = center
         cell.border = thin_border
-    
     df_night = df_f[df_f["Shift"] == "Night Shift"] if not df_f.empty else pd.DataFrame()
     for i, (kode, info) in enumerate(titik_data.items(), 1):
         row = start_night + i
         match = df_night[df_night["Kode_Titik"] == kode] if not df_night.empty else pd.DataFrame()
         if len(match) > 0:
             m = match.iloc[0]
-            vals = [i, kode, info["Lokasi"], str(m.get("Waktu","")),
-                    f"{float(m.get('H2S',0)):.2f}", f"{float(m.get('O2',0)):.1f}",
-                    f"{float(m.get('CO',0)):.1f}", f"{float(m.get('LEL',0)):.1f}",
-                    f"{float(m.get('SO2',0)):.2f}"]
+            vals = [
+                i, kode, info["Lokasi"], str(m.get("Waktu", "")),
+                "{:.2f}".format(float(m.get("H2S", 0))),
+                "{:.1f}".format(float(m.get("O2", 0))),
+                "{:.1f}".format(float(m.get("CO", 0))),
+                "{:.1f}".format(float(m.get("LEL", 0))),
+                "{:.2f}".format(float(m.get("SO2", 0))),
+            ]
         else:
             vals = [i, kode, info["Lokasi"], "-", "-", "-", "-", "-", "-"]
         for col, val in enumerate(vals, 1):
             cell = ws.cell(row=row, column=col, value=val)
             cell.border = thin_border
             cell.alignment = left if col == 3 else center
-    
-    ws.cell(row=32, column=1, value="Catatan: Berdasarkan hasil pemantauan udara sesaat menggunakan Multiple Gas Detector dan SO2 Detector.").font = Font(name='Arial', size=9, italic=True)
-    
-    widths = [6, 10, 22, 12, 12, 10, 12, 10, 12]
-    for i, w in enumerate(widths, 1):
+    ws.cell(
+        row=32, column=1,
+        value="Catatan: Berdasarkan hasil pemantauan udara sesaat menggunakan Multiple Gas Detector dan SO2 Detector.",
+    ).font = Font(name="Arial", size=9, italic=True)
+    for i, w in enumerate([6, 10, 22, 12, 12, 10, 12, 10, 12], 1):
         ws.column_dimensions[get_column_letter(i)].width = w
-    
     bio = BytesIO()
     wb.save(bio)
     return bio.getvalue()
 
+
 def buat_excel_bulanan(df_db_all, bulan_target, tahun_target):
     bulan_map = {
-        "Januari": 1, "Februari": 2, "Maret": 3, "April": 4,
-        "Mei": 5, "Juni": 6, "Juli": 7, "Agustus": 8,
-        "September": 9, "Oktober": 10, "November": 11, "Desember": 12
+        "Januari": 1, "Februari": 2, "Maret": 3, "April": 4, "Mei": 5, "Juni": 6,
+        "Juli": 7, "Agustus": 8, "September": 9, "Oktober": 10, "November": 11, "Desember": 12,
     }
-    
     titik_data = load_titik()
     wb = Workbook()
     ws = wb.active
-    ws.title = f"{bulan_target[:3]}-{str(tahun_target)[-2:]}"
-    
-    font_title = Font(name='Arial', size=14, bold=True)
-    font_header = Font(name='Arial', size=8, bold=True, color="FFFFFF")
-    font_sub = Font(name='Arial', size=7, bold=True)
+    ws.title = bulan_target[:3] + "-" + str(tahun_target)[-2:]
+    font_title = Font(name="Arial", size=14, bold=True)
+    font_header = Font(name="Arial", size=8, bold=True, color="FFFFFF")
+    font_sub = Font(name="Arial", size=7, bold=True)
     fill_header = PatternFill(start_color="0288D1", end_color="0288D1", fill_type="solid")
     fill_ds = PatternFill(start_color="BBDEFB", end_color="BBDEFB", fill_type="solid")
     fill_ns = PatternFill(start_color="FFE0B2", end_color="FFE0B2", fill_type="solid")
-    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
-    center = Alignment(horizontal='center', vertical='center', wrap_text=True)
-    
-    ws.merge_cells('A1:Z1')
+    thin_border = Border(
+        left=Side(style="thin"), right=Side(style="thin"),
+        top=Side(style="thin"), bottom=Side(style="thin"),
+    )
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    ws.merge_cells("A1:Z1")
     ws.cell(row=1, column=1, value="Pemantauan Udara Sesaat").font = font_title
-    ws.cell(row=1, column=1).alignment = Alignment(horizontal='center')
-    
-    col = 2
+    ws.cell(row=1, column=1).alignment = Alignment(horizontal="center")
     list_tp = list(titik_data.items())
-    
-    ws.cell(row=3, column=1, value=bulan_target).font = Font(name='Arial', size=10, bold=True)
-    
+    ws.cell(row=3, column=1, value=bulan_target).font = Font(name="Arial", size=10, bold=True)
+    col = 2
     for kode, info in list_tp:
-        start_col = col
-        end_col = col + 13
+        start_col, end_col = col, col + 13
         ws.merge_cells(start_row=3, start_column=start_col, end_row=3, end_column=end_col)
         cell = ws.cell(row=3, column=start_col, value=kode)
         cell.font = font_header
         cell.fill = fill_header
         cell.alignment = center
-        for c in range(start_col, end_col+1):
+        for c in range(start_col, end_col + 1):
             ws.cell(row=3, column=c).border = thin_border
             ws.cell(row=3, column=c).fill = fill_header
         col = end_col + 1
-    
     col = 2
     for kode, info in list_tp:
-        start_col = col
-        end_col = col + 13
+        start_col, end_col = col, col + 13
         ws.merge_cells(start_row=4, start_column=start_col, end_row=4, end_column=end_col)
         cell = ws.cell(row=4, column=start_col, value=info["Lokasi"])
-        cell.font = Font(name='Arial', size=8, bold=True)
+        cell.font = Font(name="Arial", size=8, bold=True)
         cell.alignment = center
-        for c in range(start_col, end_col+1):
+        for c in range(start_col, end_col + 1):
             ws.cell(row=4, column=c).border = thin_border
         col = end_col + 1
-    
     col = 2
     for _ in list_tp:
-        ws.merge_cells(start_row=5, start_column=col, end_row=5, end_column=col+6)
+        ws.merge_cells(start_row=5, start_column=col, end_row=5, end_column=col + 6)
         cell = ws.cell(row=5, column=col, value="Ds/")
         cell.font = font_sub
         cell.fill = fill_ds
         cell.alignment = center
-        for c in range(col, col+7):
+        for c in range(col, col + 7):
             ws.cell(row=5, column=c).border = thin_border
             ws.cell(row=5, column=c).fill = fill_ds
-        
-        ws.merge_cells(start_row=5, start_column=col+7, end_row=5, end_column=col+13)
-        cell = ws.cell(row=5, column=col+7, value="Ns/")
+        ws.merge_cells(start_row=5, start_column=col + 7, end_row=5, end_column=col + 13)
+        cell = ws.cell(row=5, column=col + 7, value="Ns/")
         cell.font = font_sub
         cell.fill = fill_ns
         cell.alignment = center
-        for c in range(col+7, col+14):
+        for c in range(col + 7, col + 14):
             ws.cell(row=5, column=c).border = thin_border
             ws.cell(row=5, column=c).fill = fill_ns
         col += 14
-    
     params = ["Waktu", "H2S\n(ppm)", "O2\n(%)", "CO\n(ppm)", "LEL\n(%)", "SO2\n(ppm)", "Noise\ndB(A)"]
     col = 2
     for _ in list_tp:
         for p in params:
             cell = ws.cell(row=6, column=col, value=p)
-            cell.font = Font(name='Arial', size=7, bold=True)
+            cell.font = Font(name="Arial", size=7, bold=True)
             cell.fill = fill_ds
             cell.alignment = center
             cell.border = thin_border
             col += 1
         for p in params:
             cell = ws.cell(row=6, column=col, value=p)
-            cell.font = Font(name='Arial', size=7, bold=True)
+            cell.font = Font(name="Arial", size=7, bold=True)
             cell.fill = fill_ns
             cell.alignment = center
             cell.border = thin_border
             col += 1
-    
     df_bulan = pd.DataFrame()
     if not df_db_all.empty:
         try:
-            df_db_all["Tanggal_dt"] = pd.to_datetime(df_db_all["Tanggal"])
+            tmp = df_db_all.copy()
+            tmp["Tanggal_dt"] = pd.to_datetime(tmp["Tanggal"])
             bulan_angka = bulan_map.get(bulan_target, datetime.now().month)
-            df_bulan = df_db_all[
-                (df_db_all["Tanggal_dt"].dt.month == bulan_angka) &
-                (df_db_all["Tanggal_dt"].dt.year == tahun_target)
+            df_bulan = tmp[
+                (tmp["Tanggal_dt"].dt.month == bulan_angka)
+                & (tmp["Tanggal_dt"].dt.year == tahun_target)
             ].copy()
-        except:
+        except Exception:
             pass
-    
     bulan_angka = bulan_map.get(bulan_target, datetime.now().month)
     jumlah_hari = monthrange(tahun_target, bulan_angka)[1]
-    
     for hari in range(1, jumlah_hari + 1):
         row = 6 + hari
         ws.cell(row=row, column=1, value=hari).border = thin_border
         ws.cell(row=row, column=1).alignment = center
-        
-        tgl_str = f"{tahun_target}-{bulan_angka:02d}-{hari:02d}"
-        
+        tgl_str = "{:04d}-{:02d}-{:02d}".format(tahun_target, bulan_angka, hari)
         col = 2
         for kode, info in list_tp:
             for shift, fill in [("Day Shift", fill_ds), ("Night Shift", fill_ns)]:
                 match = pd.DataFrame()
                 if not df_bulan.empty:
-                    match = df_bulan[(df_bulan["Tanggal"] == tgl_str) & 
-                                    (df_bulan["Kode_Titik"] == kode) & 
-                                    (df_bulan["Shift"] == shift)]
-                
+                    match = df_bulan[
+                        (df_bulan["Tanggal"] == tgl_str)
+                        & (df_bulan["Kode_Titik"] == kode)
+                        & (df_bulan["Shift"] == shift)
+                    ]
                 if len(match) > 0:
                     m = match.iloc[0]
+                    noise_val = ""
+                    if pd.notna(m.get("Noise")):
+                        noise_val = "{:.1f}".format(float(m.get("Noise", 0)))
                     vals = [
                         str(m.get("Waktu", "")),
-                        f"{float(m.get('H2S', 0)):.1f}",
-                        f"{float(m.get('O2', 0)):.1f}",
-                        f"{float(m.get('CO', 0)):.1f}",
-                        f"{float(m.get('LEL', 0)):.1f}",
-                        f"{float(m.get('SO2', 0)):.1f}",
-                        f"{float(m.get('Noise', 0)):.1f}" if pd.notna(m.get("Noise")) else ""
+                        "{:.1f}".format(float(m.get("H2S", 0))),
+                        "{:.1f}".format(float(m.get("O2", 0))),
+                        "{:.1f}".format(float(m.get("CO", 0))),
+                        "{:.1f}".format(float(m.get("LEL", 0))),
+                        "{:.1f}".format(float(m.get("SO2", 0))),
+                        noise_val,
                     ]
                 else:
                     vals = ["", "0", "0", "0", "0", "0", ""]
-                
                 for v in vals:
                     cell = ws.cell(row=row, column=col, value=v)
                     cell.border = thin_border
                     cell.alignment = center
                     cell.fill = fill
                     col += 1
-    
     note_row = 6 + jumlah_hari + 2
-    ws.cell(row=note_row, column=1, value="Note : Berdasarkan hasil pemantauan udara sesaat dengan menggunakan Multiple Gas Detector dan SO2 Detector di beberapa titik.").font = Font(name='Arial', size=8, italic=True)
-    
-    ws.column_dimensions['A'].width = 5
-    for i in range(2, 2 + len(list_tp)*14):
+    ws.cell(
+        row=note_row, column=1,
+        value="Note : Berdasarkan hasil pemantauan udara sesaat dengan menggunakan Multiple Gas Detector dan SO2 Detector di beberapa titik.",
+    ).font = Font(name="Arial", size=8, italic=True)
+    ws.column_dimensions["A"].width = 5
+    for i in range(2, 2 + len(list_tp) * 14):
         ws.column_dimensions[get_column_letter(i)].width = 6
-    
     bio = BytesIO()
     wb.save(bio)
     return bio.getvalue()
 
+
 def ambil_foto(df_shift, kode, tgl_str, shift_folder):
     path1, path2 = None, None
     match = df_shift[df_shift["Kode_Titik"] == kode] if not df_shift.empty else pd.DataFrame()
-    
     if len(match) > 0:
         if "Path_Foto" in match.columns:
             p1 = match.iloc[0].get("Path_Foto", "")
@@ -389,12 +515,11 @@ def ambil_foto(df_shift, kode, tgl_str, shift_folder):
             p2 = match.iloc[0].get("Path_Foto2", "")
             if p2 and os.path.exists(str(p2)):
                 path2 = str(p2)
-    
-    folder = f"foto_monitoring/{tgl_str}/{shift_folder}"
+    folder = "foto_monitoring/" + tgl_str + "/" + shift_folder
     if not path1:
         for ext in ["jpg", "jpeg", "png"]:
             for nomor in ["_1", ""]:
-                candidate = f"{folder}/{kode.replace(' ', '_')}{nomor}.{ext}"
+                candidate = folder + "/" + kode.replace(" ", "_") + nomor + "." + ext
                 if os.path.exists(candidate):
                     path1 = candidate
                     break
@@ -402,7 +527,7 @@ def ambil_foto(df_shift, kode, tgl_str, shift_folder):
                 break
     if not path2:
         for ext in ["jpg", "jpeg", "png"]:
-            candidate = f"{folder}/{kode.replace(' ', '_')}_2.{ext}"
+            candidate = folder + "/" + kode.replace(" ", "_") + "_2." + ext
             if os.path.exists(candidate):
                 path2 = candidate
                 break
@@ -411,42 +536,43 @@ def buat_pdf_laporan(df_db, tgl_target):
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=A4,
-        rightMargin=1.8*cm, leftMargin=1.8*cm,
-        topMargin=2.5*cm, bottomMargin=1.2*cm
+        rightMargin=1.8 * cm, leftMargin=1.8 * cm,
+        topMargin=2.5 * cm, bottomMargin=1.2 * cm,
     )
-    
     styles = getSampleStyleSheet()
-    style_title = ParagraphStyle('TitleCustom', parent=styles['Heading1'], fontSize=12, alignment=TA_CENTER, spaceAfter=2, fontName='Helvetica-Bold')
-    style_subtitle = ParagraphStyle('Subtitle', parent=styles['Normal'], fontSize=11, alignment=TA_CENTER, spaceAfter=3, fontName='Helvetica-Bold')
-    style_heading = ParagraphStyle('HeadingCustom', parent=styles['Heading2'], fontSize=11, spaceBefore=5, spaceAfter=2, fontName='Helvetica-Bold')
-    style_normal = ParagraphStyle('NormalCustom', parent=styles['Normal'], fontSize=10, leading=12, alignment=TA_JUSTIFY, fontName='Helvetica')
-    style_small = ParagraphStyle('Small', parent=styles['Normal'], fontSize=8, leading=10, alignment=TA_LEFT, fontName='Helvetica')
-    style_center = ParagraphStyle('Center', parent=styles['Normal'], fontSize=10, alignment=TA_CENTER)
-    style_left = ParagraphStyle('Left', parent=styles['Normal'], fontSize=10, alignment=TA_LEFT)
-    style_caption = ParagraphStyle('Caption', parent=styles['Normal'], fontSize=9, leading=11, alignment=TA_CENTER, fontName='Helvetica')
-    
+    style_title = ParagraphStyle("TitleCustom", parent=styles["Heading1"], fontSize=12, alignment=TA_CENTER, spaceAfter=2, fontName="Helvetica-Bold")
+    style_subtitle = ParagraphStyle("Subtitle", parent=styles["Normal"], fontSize=11, alignment=TA_CENTER, spaceAfter=3, fontName="Helvetica-Bold")
+    style_heading = ParagraphStyle("HeadingCustom", parent=styles["Heading2"], fontSize=11, spaceBefore=5, spaceAfter=2, fontName="Helvetica-Bold")
+    style_normal = ParagraphStyle("NormalCustom", parent=styles["Normal"], fontSize=10, leading=12, alignment=TA_JUSTIFY, fontName="Helvetica")
+    style_small = ParagraphStyle("Small", parent=styles["Normal"], fontSize=8, leading=10, alignment=TA_LEFT, fontName="Helvetica")
+    style_center = ParagraphStyle("Center", parent=styles["Normal"], fontSize=10, alignment=TA_CENTER)
+    style_left = ParagraphStyle("Left", parent=styles["Normal"], fontSize=10, alignment=TA_LEFT)
+    style_caption = ParagraphStyle("Caption", parent=styles["Normal"], fontSize=9, leading=11, alignment=TA_CENTER, fontName="Helvetica")
+
     story = []
     titik_data = load_titik()
     tgl_str = tgl_target.strftime("%Y-%m-%d")
-    
+
     story.append(Spacer(1, 3))
     story.append(Paragraph("LAPORAN PEMANTAUAN UDARA SESAAT", style_title))
     story.append(Paragraph("PADA KEGIATAN PRODUKSI FASE OPERASI", style_subtitle))
     story.append(Spacer(1, 2))
-    
-    intro = "Berikut disampaikan laporan kegiatan pemantauan sesaat dengan menggunakan <i>Multiple Gas Detector</i> dan SO2 detector di Area GPF dan sekitar GPF pada saat kegiatan Produksi Fase Operasi."
+
+    intro = (
+        "Berikut disampaikan laporan kegiatan pemantauan sesaat dengan menggunakan "
+        "<i>Multiple Gas Detector</i> dan SO2 detector di Area GPF dan sekitar GPF "
+        "pada saat kegiatan Produksi Fase Operasi."
+    )
     story.append(Paragraph(intro, style_normal))
     story.append(Spacer(1, 3))
-    
     story.append(Paragraph("1. Pelaksanaan :", style_heading))
-    
+
     df_hari = df_db[df_db["Tanggal"] == tgl_str].copy() if not df_db.empty else pd.DataFrame()
-    
     petugas_ds = "-"
     petugas_ns = "-"
     jam_ds_awal, jam_ds_akhir = "-", "-"
     jam_ns_awal, jam_ns_akhir = "-", "-"
-    
+
     if not df_hari.empty:
         ds = df_hari[df_hari["Shift"] == "Day Shift"]
         ns = df_hari[df_hari["Shift"] == "Night Shift"]
@@ -462,294 +588,293 @@ def buat_pdf_laporan(df_db, tgl_target):
             if waktu_ns:
                 jam_ns_awal = waktu_ns[0]
                 jam_ns_akhir = waktu_ns[-1]
-    
+
     hari_list = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
-    bulan_list = ["", "Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
-    tgl_label = f"{hari_list[tgl_target.weekday()]}, {tgl_target.day} {bulan_list[tgl_target.month]} {tgl_target.year}"
-    
+    bulan_list = ["", "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+                  "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
+    tgl_label = hari_list[tgl_target.weekday()] + ", " + str(tgl_target.day) + " " + bulan_list[tgl_target.month] + " " + str(tgl_target.year)
+
     pel_data = [
         ["Hari, Tanggal", ":", tgl_label],
-        ["Jam", ":", f"Day Shift {jam_ds_awal} WIB s/d {jam_ds_akhir} WIB"],
-        ["", "", f"Night Shift {jam_ns_awal} WIB s/d {jam_ns_akhir} WIB"],
+        ["Jam", ":", "Day Shift " + jam_ds_awal + " WIB s/d " + jam_ds_akhir + " WIB"],
+        ["", "", "Night Shift " + jam_ns_awal + " WIB s/d " + jam_ns_akhir + " WIB"],
         ["Tempat", ":", "Luar Area GPF"],
         ["Dilaporkan oleh", ":", ""],
         ["Petugas Sampling", ":", "Environment (DS) & ERCM (NS)"],
         ["Siang dilakukan pengukuran oleh", ":", petugas_ds],
         ["Malam dilakukan pengukuran oleh", ":", petugas_ns],
     ]
-    
-    t_pel = Table(pel_data, colWidths=[5.5*cm, 0.4*cm, 10.5*cm])
+    t_pel = Table(pel_data, colWidths=[5.5 * cm, 0.4 * cm, 10.5 * cm])
     t_pel.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('TOPPADDING', (0, 0), (-1, -1), 1),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 1),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
     ]))
     story.append(t_pel)
-    
+
     story.append(Paragraph("2. Tujuan :", style_heading))
     story.append(Paragraph("a. Memastikan dispersi dari kegiatan flaring JTB GPF aman.", style_normal))
     story.append(Paragraph("b. Sebagai salah satu data rona lingkungan pada Tahap Operasi berlangsung.", style_normal))
-    
+
     story.append(Paragraph("3. Titik Pengukuran", style_heading))
-    story.append(Paragraph("Titik monitoring dilakukan di luar area GPF, penentuan titik pemantauan berdasarkan 4 arah mata angin serta kawasan permukiman terdekat:", style_normal))
+    story.append(Paragraph(
+        "Titik monitoring dilakukan di luar area GPF, penentuan titik pemantauan berdasarkan 4 arah mata angin serta kawasan permukiman terdekat:",
+        style_normal,
+    ))
     story.append(Spacer(1, 2))
-    
+
     header_titik = ["No.", "Kode", "Lokasi", "Latitude", "Longitude", "Latitude NS", "Longitude NS"]
     data_titik = [header_titik]
     for i, (kode, info) in enumerate(titik_data.items(), 1):
         data_titik.append([str(i), kode, info["Lokasi"], info["Lat"], info["Long"], info["LatNS"], info["LongNS"]])
-    
-    t_titik = Table(data_titik, colWidths=[1.0*cm, 1.5*cm, 4.0*cm, 2.5*cm, 2.5*cm, 2.5*cm, 2.5*cm])
+
+    t_titik = Table(data_titik, colWidths=[1.0 * cm, 1.5 * cm, 4.0 * cm, 2.5 * cm, 2.5 * cm, 2.5 * cm, 2.5 * cm])
     t_titik.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0288D1')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 8),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('GRID', (0, 0), (-1, -1), 0.6, colors.black),
-        ('TOPPADDING', (0, 0), (-1, -1), 2),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0288D1")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("GRID", (0, 0), (-1, -1), 0.6, colors.black),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
     ]))
     story.append(t_titik)
-    
+
     story.append(Paragraph("4. Hasil Pengukuran", style_heading))
-    story.append(Paragraph("Hasil monitoring pada titik pantau menggunakan <i>Multiple Gas Detector</i> adalah sebagai berikut:", style_normal))
-    
+    story.append(Paragraph(
+        "Hasil monitoring pada titik pantau menggunakan <i>Multiple Gas Detector</i> adalah sebagai berikut:",
+        style_normal,
+    ))
+
     def buat_tabel_hasil(df_shift, judul):
-        elems = [Paragraph(f"<b>{judul}</b>", style_small)]
+        elems = [Paragraph("<b>" + judul + "</b>", style_small)]
         header = ["No.", "Kode", "Lokasi", "Waktu", "H2S (ppm)", "O2 (%)", "CO (ppm)", "LEL (%)", "SO2 (ppm)"]
         data = [header]
         for i, (kode, info) in enumerate(titik_data.items(), 1):
             match = df_shift[df_shift["Kode_Titik"] == kode] if not df_shift.empty else pd.DataFrame()
             if len(match) > 0:
                 m = match.iloc[0]
-                row = [str(i), kode, info["Lokasi"], str(m.get("Waktu", "")),
-                       f"{float(m.get('H2S', 0)):.1f}", f"{float(m.get('O2', 0)):.1f}",
-                       f"{float(m.get('CO', 0)):.1f}", f"{float(m.get('LEL', 0)):.1f}",
-                       f"{float(m.get('SO2', 0)):.1f}"]
+                row = [
+                    str(i), kode, info["Lokasi"], str(m.get("Waktu", "")),
+                    "{:.1f}".format(float(m.get("H2S", 0))),
+                    "{:.1f}".format(float(m.get("O2", 0))),
+                    "{:.1f}".format(float(m.get("CO", 0))),
+                    "{:.1f}".format(float(m.get("LEL", 0))),
+                    "{:.1f}".format(float(m.get("SO2", 0))),
+                ]
             else:
                 row = [str(i), kode, info["Lokasi"], "-", "0", "0", "0", "0", "0"]
             data.append(row)
-        
-        t = Table(data, colWidths=[0.8*cm, 1.3*cm, 3.5*cm, 1.8*cm, 1.8*cm, 1.5*cm, 1.6*cm, 1.5*cm, 1.7*cm])
+        t = Table(data, colWidths=[0.8 * cm, 1.3 * cm, 3.5 * cm, 1.8 * cm, 1.8 * cm, 1.5 * cm, 1.6 * cm, 1.5 * cm, 1.7 * cm])
         t.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0288D1')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 8),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('GRID', (0, 0), (-1, -1), 0.6, colors.black),
-            ('TOPPADDING', (0, 0), (-1, -1), 2),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0288D1")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("GRID", (0, 0), (-1, -1), 0.6, colors.black),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
         ]))
         elems.append(t)
         return elems
-    
+
     df_day = df_hari[df_hari["Shift"] == "Day Shift"] if not df_hari.empty else pd.DataFrame()
     df_night = df_hari[df_hari["Shift"] == "Night Shift"] if not df_hari.empty else pd.DataFrame()
-    
     story.append(Spacer(1, 2))
     story.extend(buat_tabel_hasil(df_day, "Day Shift"))
     story.append(Spacer(1, 3))
     story.extend(buat_tabel_hasil(df_night, "Night Shift"))
-    
+
     def buat_blok_foto(caption, path1, path2):
         ada1 = path1 and os.path.exists(path1)
         ada2 = path2 and os.path.exists(path2)
-        
         if ada1 and ada2:
             try:
-                img1 = Image(path1, width=3.95*cm, height=5.29*cm)
-            except:
+                img1 = Image(path1, width=3.95 * cm, height=5.29 * cm)
+            except Exception:
                 img1 = Paragraph("[Foto error]", style_center)
             try:
-                img2 = Image(path2, width=3.95*cm, height=5.29*cm)
-            except:
+                img2 = Image(path2, width=3.95 * cm, height=5.29 * cm)
+            except Exception:
                 img2 = Paragraph("[Foto error]", style_center)
-            inner = Table([[img1, img2]], colWidths=[4.3*cm, 4.3*cm])
+            inner = Table([[img1, img2]], colWidths=[4.3 * cm, 4.3 * cm])
             inner.setStyle(TableStyle([
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('LEFTPADDING', (0, 0), (-1, -1), 3),
-                ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 3),
             ]))
             isi_foto = inner
         elif ada1 or ada2:
             p = path1 if ada1 else path2
             try:
-                img = Image(p, width=3.95*cm, height=5.29*cm)
-            except:
+                img = Image(p, width=3.95 * cm, height=5.29 * cm)
+            except Exception:
                 img = Paragraph("[Foto error]", style_center)
             isi_foto = img
         else:
             isi_foto = Paragraph("[Belum ada foto]", style_center)
-        
-        content = [
-            [Paragraph(caption, style_caption)],
-            [isi_foto]
-        ]
-        t = Table(content, colWidths=[16.4*cm])
+        content = [[Paragraph(caption, style_caption)], [isi_foto]]
+        t = Table(content, colWidths=[16.4 * cm])
         t.setStyle(TableStyle([
-            ('BOX', (0, 0), (-1, -1), 0.8, colors.black),
-            ('LINEBELOW', (0, 0), (-1, 0), 0.5, colors.black),
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F8F8F8')),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('TOPPADDING', (0, 0), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ("BOX", (0, 0), (-1, -1), 0.8, colors.black),
+            ("LINEBELOW", (0, 0), (-1, 0), 0.5, colors.black),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F8F8F8")),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ]))
         return t
-    
+
     story.append(PageBreak())
     story.append(Paragraph("5. Dokumentasi, Pemantauan Day Shift", style_heading))
-    
     for kode, info in titik_data.items():
         match = df_day[df_day["Kode_Titik"] == kode] if not df_day.empty else pd.DataFrame()
         waktu = str(match.iloc[0]["Waktu"]) if len(match) > 0 else "..."
-        caption = f"Pemantauan di {kode} ({info['Lokasi']}) pukul {waktu} WIB"
+        caption = "Pemantauan di " + kode + " (" + info["Lokasi"] + ") pukul " + waktu + " WIB"
         path1, path2 = ambil_foto(df_day, kode, tgl_str, "Day_Shift")
         story.append(buat_blok_foto(caption, path1, path2))
         story.append(Spacer(1, 3))
-    
+
     story.append(PageBreak())
-    
     path_peta1 = os.path.join(FOLDER_PETA, "peta_1.jpg")
     if os.path.exists(path_peta1):
         try:
-            img_peta = Image(path_peta1, width=15.22*cm, height=7.41*cm)
-            img_peta.hAlign = 'CENTER'
+            img_peta = Image(path_peta1, width=15.22 * cm, height=7.41 * cm)
+            img_peta.hAlign = "CENTER"
             story.append(img_peta)
             story.append(Spacer(1, 4))
-        except:
+        except Exception:
             pass
-    
+
     story.append(Paragraph("6. Dokumentasi, pemantauan Night Shift", style_heading))
     story.append(Spacer(1, 2))
-    
     for kode, info in titik_data.items():
         match = df_night[df_night["Kode_Titik"] == kode] if not df_night.empty else pd.DataFrame()
         waktu = str(match.iloc[0]["Waktu"]) if len(match) > 0 else "..."
-        caption = f"Pemantauan di {kode} ({info['Lokasi']}) pukul {waktu} WIB"
+        caption = "Pemantauan di " + kode + " (" + info["Lokasi"] + ") pukul " + waktu + " WIB"
         path1, path2 = ambil_foto(df_night, kode, tgl_str, "Night_Shift")
         story.append(buat_blok_foto(caption, path1, path2))
         story.append(Spacer(1, 3))
-    
+
     path_peta2 = os.path.join(FOLDER_PETA, "peta_2.jpg")
     if os.path.exists(path_peta2):
         try:
-            img_peta2 = Image(path_peta2, width=15.22*cm, height=7.41*cm)
-            img_peta2.hAlign = 'CENTER'
+            img_peta2 = Image(path_peta2, width=15.22 * cm, height=7.41 * cm)
+            img_peta2.hAlign = "CENTER"
             story.append(img_peta2)
-        except:
+        except Exception:
             pass
-    
+
     story.append(Spacer(1, 8))
     story.append(Paragraph("7. Kesimpulan :", style_heading))
-    
-    # Kesimpulan HANYA dari Pilih Kesimpulan saat input
     kesimpulan_hari = "-"
     if not df_hari.empty and "Kesimpulan" in df_hari.columns:
         kes_list = [x for x in df_hari["Kesimpulan"].dropna().tolist() if str(x).strip()]
         if kes_list:
             kesimpulan_hari = str(kes_list[-1])
-    
     story.append(Paragraph(kesimpulan_hari, style_normal))
     story.append(Spacer(1, 4))
-    
-    story.append(Paragraph(f"Bojonegoro, {tgl_target.day} {bulan_list[tgl_target.month]} {tgl_target.year}", style_left))
+    story.append(Paragraph("Bojonegoro, " + str(tgl_target.day) + " " + bulan_list[tgl_target.month] + " " + str(tgl_target.year), style_left))
     story.append(Spacer(1, 6))
-    
+
     peng = load_pengaturan_laporan()
-    
     ttd_ds = os.path.join(FOLDER_TTD, "ttd_day.png")
     ttd_ns = os.path.join(FOLDER_TTD, "ttd_night.png")
     ttd_diperiksa = os.path.join(FOLDER_TTD, "ttd_diperiksa.png")
     ttd_disetujui = os.path.join(FOLDER_TTD, "ttd_disetujui.png")
-    
+
     def get_ttd_img(path):
         if os.path.exists(path):
             try:
-                return Image(path, width=3.5*cm, height=2.2*cm)
-            except:
+                return Image(path, width=3.5 * cm, height=2.2 * cm)
+            except Exception:
                 return ""
         return ""
-    
+
     img_ds = get_ttd_img(ttd_ds)
     img_ns = get_ttd_img(ttd_ns)
     img_dip = get_ttd_img(ttd_diperiksa)
     img_dis = get_ttd_img(ttd_disetujui)
-    
+
     ttd_data = [
-        [Paragraph("<b>Dilaporkan oleh</b>", style_center), "", 
-         Paragraph("<b>Diperiksa oleh</b>", style_center), 
+        [Paragraph("<b>Dilaporkan oleh</b>", style_center), "",
+         Paragraph("<b>Diperiksa oleh</b>", style_center),
          Paragraph("<b>Disetujui Oleh</b>", style_center)],
-        [Paragraph("<b>Day Shift</b>", style_center), 
+        [Paragraph("<b>Day Shift</b>", style_center),
          Paragraph("<b>Night Shift</b>", style_center), "", ""],
-        [img_ds if img_ds else "", img_ns if img_ns else "", 
+        [img_ds if img_ds else "", img_ns if img_ns else "",
          img_dip if img_dip else "", img_dis if img_dis else ""],
-        [Paragraph(f"<b>{petugas_ds}</b><br/><b>Associate Environment Staff</b>", style_center),
-         Paragraph(f"<b>{petugas_ns}</b><br/><b>ERCM Staff</b>", style_center),
-         Paragraph(f"<b>{peng['Nama_Diperiksa']}</b><br/><b>{peng['Jabatan_Diperiksa']}</b>", style_center),
-         Paragraph(f"<b>{peng['Nama_Disetujui']}</b><br/><b>{peng['Jabatan_Disetujui']}</b>", style_center)],
+        [
+            Paragraph("<b>" + petugas_ds + "</b><br/><b>Associate Environment Staff</b>", style_center),
+            Paragraph("<b>" + petugas_ns + "</b><br/><b>ERCM Staff</b>", style_center),
+            Paragraph("<b>" + peng["Nama_Diperiksa"] + "</b><br/><b>" + peng["Jabatan_Diperiksa"] + "</b>", style_center),
+            Paragraph("<b>" + peng["Nama_Disetujui"] + "</b><br/><b>" + peng["Jabatan_Disetujui"] + "</b>", style_center),
+        ],
     ]
-    
-    t_ttd = Table(ttd_data, colWidths=[4.2*cm, 4.2*cm, 4.2*cm, 4.2*cm])
+    t_ttd = Table(ttd_data, colWidths=[4.2 * cm, 4.2 * cm, 4.2 * cm, 4.2 * cm])
     t_ttd.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 0), (-1, -1), 8),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('BOX', (0, 0), (-1, -1), 0.8, colors.black),
-        ('LINEBELOW', (0, 0), (-1, 0), 0.5, colors.black),
-        ('LINEAFTER', (0, 0), (0, -1), 0.5, colors.black),
-        ('LINEAFTER', (1, 0), (1, -1), 0.5, colors.black),
-        ('LINEAFTER', (2, 0), (2, -1), 0.5, colors.black),
-        ('SPAN', (0, 0), (1, 0)),
-        ('LINEBELOW', (0, 1), (1, 1), 0, colors.white),
-        ('LINEABOVE', (0, 3), (-1, 3), 0, colors.white),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("BOX", (0, 0), (-1, -1), 0.8, colors.black),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.5, colors.black),
+        ("LINEAFTER", (0, 0), (0, -1), 0.5, colors.black),
+        ("LINEAFTER", (1, 0), (1, -1), 0.5, colors.black),
+        ("LINEAFTER", (2, 0), (2, -1), 0.5, colors.black),
+        ("SPAN", (0, 0), (1, 0)),
+        ("LINEBELOW", (0, 1), (1, 1), 0, colors.white),
+        ("LINEABOVE", (0, 3), (-1, 3), 0, colors.white),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     story.append(t_ttd)
-    
+
     story.append(Spacer(1, 10))
     story.append(Paragraph("<i>Keterangan:</i>", style_small))
     story.append(Paragraph(
         "1. Nilai Ambang Batas <b>H2S</b> sebesar <b>1 ppm</b> mengacu pada Peraturan Menteri Ketenagakerjaan Nomor 5 Tahun 2018 Tentang Keselamatan dan Kesehatan Kerja Lingkungan Kerja",
-        style_small))
+        style_small,
+    ))
     story.append(Paragraph(
         "2. Rentang nilai ketersediaan <b>oksigen</b> di udara sebesar <b>19,5% – 23,5%</b> mengacu pada Peraturan Menteri Ketenagakerjaan Nomor 5 Tahun 2018 Tentang Keselamatan dan Kesehatan Kerja Lingkungan Kerja",
-        style_small))
+        style_small,
+    ))
     story.append(Paragraph(
         "3. Baku Mutu <b>CO</b> sebesar <b>8,72 ppm</b> mengacu pada Peraturan Pemerintah (PP) Nomor 22 Tahun 2021 tentang Penyelenggaraan Perlindungan dan Pengelolaan Lingkungan Hidup",
-        style_small))
+        style_small,
+    ))
     story.append(Paragraph(
         "4. Baku Mutu <b>SO2</b> sebesar <b>0,057 ppm</b> mengacu pada Peraturan Pemerintah (PP) Nomor 22 Tahun 2021 tentang Penyelenggaraan Perlindungan dan Pengelolaan Lingkungan Hidup",
-        style_small))
+        style_small,
+    ))
     story.append(Paragraph(
         "5. Baku Tingkat <b>Kebisingan</b> sebesar <b>55 dB</b> untuk Kawasan Perumahan dan Pemukiman mengacu pada Keputusan Menteri Negara Lingkungan Hidup Nomor 48 Tahun 1996",
-        style_small))
-    
+        style_small,
+    ))
+
     doc.build(story, onFirstPage=add_header_logo, onLaterPages=add_header_logo)
     buffer.seek(0)
     return buffer.getvalue()
-def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
+def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petugas"):
     titik_data = load_titik()
     daftar_alat = load_daftar_alat()
-    
+
+    # ===================== REVIEW DATA =====================
     if pilihan_menu == "2. Review Data":
         st.markdown("### 2. Portal Pencarian & Review Data")
-        
         if not os.path.exists(FILE_DB):
             st.info("Database belum terbentuk.")
             return
-        
         df_db = pd.read_excel(FILE_DB)
-        
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             cari_tgl = st.date_input("Tanggal", datetime.now())
@@ -759,7 +884,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
             cari_tp = st.selectbox("Titik", ["Semua"] + list(titik_data.keys()))
         with c4:
             cari_status = st.selectbox("Status", ["Semua", "Aman", "Waspada", "Bahaya"])
-        
         df_hasil = df_db[df_db["Tanggal"] == cari_tgl.strftime("%Y-%m-%d")].copy()
         if cari_shift != "Semua":
             df_hasil = df_hasil[df_hasil["Shift"] == cari_shift]
@@ -767,88 +891,106 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
             df_hasil = df_hasil[df_hasil["Kode_Titik"] == cari_tp]
         if cari_status != "Semua":
             df_hasil = df_hasil[df_hasil["Status"] == cari_status]
-        
         if not df_hasil.empty:
             if "Bahaya" in df_hasil["Status"].values:
-                st.error("⚠️ TERDETEKSI STATUS BAHAYA")
+                st.error("TERDETEKSI STATUS BAHAYA")
             elif "Waspada" in df_hasil["Status"].values:
-                st.warning("⚡ ADA STATUS WASPADA")
-            elif "Terpapar" in df_hasil["Status"].values:
-                st.error("TERDETEKSI PAPARAN GAS (data lama)")
+                st.warning("ADA STATUS WASPADA")
             else:
-                st.success("✅ SEMUA TITIK AMAN")
-            
+                st.success("SEMUA TITIK AMAN")
+
             def style_row(row):
                 s = str(row.Status)
                 if s in ["Bahaya", "Terpapar"]:
-                    return ['background-color:#FFEBEE'] * len(row)
-                elif s in ["Waspada", "O2 Tidak Normal"]:
-                    return ['background-color:#FFF8E1'] * len(row)
-                else:
-                    return ['background-color:#E8F5E9'] * len(row)
-            
+                    return ["background-color:#FFEBEE"] * len(row)
+                if s in ["Waspada", "O2 Tidak Normal"]:
+                    return ["background-color:#FFF8E1"] * len(row)
+                return ["background-color:#E8F5E9"] * len(row)
+
             st.dataframe(df_hasil.style.apply(style_row, axis=1), use_container_width=True)
-            
             st.markdown("---")
             idx = st.selectbox("Pilih indeks untuk dihapus:", df_hasil.index)
             if st.button("Hapus Permanen"):
-                df_baru = df_db.drop(idx).reset_index(drop=True)
-                df_baru.to_excel(FILE_DB, index=False)
+                df_db.drop(idx).reset_index(drop=True).to_excel(FILE_DB, index=False)
                 st.success("Data dihapus")
                 st.rerun()
         else:
             st.info("Belum ada data pada filter ini.")
-    
+
+    # ===================== DOWNLOAD =====================
     elif pilihan_menu == "3. Download Laporan":
         st.markdown("### 3. Panel Cetak & Download")
-        
         if not os.path.exists(FILE_DB):
             st.info("Database belum terbentuk.")
             return
-        
         df_db = pd.read_excel(FILE_DB)
-        
         tab1, tab2, tab3 = st.tabs(["Excel Harian", "Excel Bulanan", "PDF Laporan Resmi"])
-        
+
         with tab1:
-            st.caption("Silahkan Unduh Excel Harian di Bawah ini:")
+            st.caption("Unduh Excel Harian:")
             tgl = st.date_input("Pilih Tanggal", datetime.now(), key="tgl_harian")
             if st.button("Generate Excel Harian", type="primary"):
                 data = buat_excel_harian_resmi(df_db, tgl)
-                st.download_button("Download", data=data,
-                    file_name=f"Laporan_Harian_{tgl.strftime('%Y%m%d')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        
+                st.download_button(
+                    "Download",
+                    data=data,
+                    file_name="Laporan_Harian_" + tgl.strftime("%Y%m%d") + ".xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+
         with tab2:
-            st.caption("Silahkan Unduh Excel Bulanan di Bawah ini:")
+            st.caption("Unduh Excel Bulanan:")
             c1, c2 = st.columns(2)
             with c1:
-                bln = st.selectbox("Bulan", 
-                    ["Januari","Februari","Maret","April","Mei","Juni",
-                     "Juli","Agustus","September","Oktober","November","Desember"],
-                    index=datetime.now().month-1)
+                bln = st.selectbox(
+                    "Bulan",
+                    ["Januari", "Februari", "Maret", "April", "Mei", "Juni",
+                     "Juli", "Agustus", "September", "Oktober", "November", "Desember"],
+                    index=datetime.now().month - 1,
+                )
             with c2:
                 thn = st.number_input("Tahun", 2024, 2030, datetime.now().year)
-            
             if st.button("Generate Excel Bulanan", type="primary"):
                 data = buat_excel_bulanan(df_db, bln, thn)
-                st.download_button("Download", data=data,
-                    file_name=f"Laporan_Bulanan_{bln}_{thn}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        
+                st.download_button(
+                    "Download",
+                    data=data,
+                    file_name="Laporan_Bulanan_" + bln + "_" + str(thn) + ".xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+
         with tab3:
-            st.caption("Generate PDF Laporan Resmi")
+            st.caption("PDF resmi: petugas hanya setelah Final. Environment Officer & Superintendent bisa preview.")
             tgl_pdf = st.date_input("Pilih Tanggal untuk PDF", datetime.now(), key="tgl_pdf")
-            
             tgl_pdf_str = tgl_pdf.strftime("%Y-%m-%d")
+            status_now = get_status_tanggal(tgl_pdf_str)
+            warna = {
+                "Draft": "#64748B",
+                "Menunggu Diperiksa": "#F9A825",
+                "Menunggu Disetujui": "#1565C0",
+                "Final": "#2E7D32",
+                "Ditolak": "#C62828",
+            }
+            warna_s = warna.get(status_now, "#333")
+            st.markdown(
+                "**Status laporan:** <span style='color:" + warna_s + ";font-weight:700;'>" + status_now + "</span>",
+                unsafe_allow_html=True,
+            )
+
+            df_st = load_status_laporan()
+            row_st = df_st[df_st["Tanggal"].astype(str) == tgl_pdf_str] if not df_st.empty else pd.DataFrame()
+            if len(row_st) > 0 and status_now == "Ditolak":
+                cat = str(row_st.iloc[-1].get("Catatan_Tolak", "") or "")
+                if cat.strip():
+                    st.error("Alasan ditolak: " + cat)
+
             df_hari_pdf = df_db[df_db["Tanggal"] == tgl_pdf_str].copy() if not df_db.empty else pd.DataFrame()
-            
             if os.path.exists(FILE_TITIK):
                 list_tp = pd.read_excel(FILE_TITIK)["Kode"].astype(str).tolist()
             else:
                 list_tp = list(titik_data.keys())
             total_tp = len(list_tp) if list_tp else 6
-            
+
             def hitung_shift(df, shift):
                 if df.empty or "Shift" not in df.columns:
                     return 0, list_tp
@@ -856,170 +998,312 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
                 sudah = d["Kode_Titik"].astype(str).unique().tolist() if not d.empty and "Kode_Titik" in d.columns else []
                 belum = [t for t in list_tp if t not in sudah]
                 return len(sudah), belum
-            
+
             n_ds, belum_ds = hitung_shift(df_hari_pdf, "Day Shift")
             n_ns, belum_ns = hitung_shift(df_hari_pdf, "Night Shift")
-            
             ada_kes = False
             if not df_hari_pdf.empty and "Kesimpulan" in df_hari_pdf.columns:
-                ada_kes = any(str(x).strip() for x in df_hari_pdf["Kesimpulan"].dropna().tolist() if str(x).strip() and str(x) != "nan")
-            
+                ada_kes = any(
+                    str(x).strip() and str(x) != "nan"
+                    for x in df_hari_pdf["Kesimpulan"].dropna().tolist()
+                )
             jml_foto = 0
             if not df_hari_pdf.empty:
                 for col_f in ["Path_Foto", "Path_Foto2"]:
                     if col_f in df_hari_pdf.columns:
-                        jml_foto += int(df_hari_pdf[col_f].fillna("").astype(str).apply(
-                            lambda x: 1 if x.strip() and x.lower() != "nan" else 0
-                        ).sum())
-            
+                        jml_foto += int(
+                            df_hari_pdf[col_f].fillna("").astype(str).apply(
+                                lambda x: 1 if x.strip() and x.lower() != "nan" else 0
+                            ).sum()
+                        )
             ada_peta1 = os.path.exists(os.path.join(FOLDER_PETA, "peta_1.jpg"))
             ada_peta2 = os.path.exists(os.path.join(FOLDER_PETA, "peta_2.jpg"))
-            ada_ttd = any(os.path.exists(os.path.join(FOLDER_TTD, f)) for f in [
-                "ttd_day.png", "ttd_night.png", "ttd_diperiksa.png", "ttd_disetujui.png"
-            ])
-            
+            ada_ttd = any(
+                os.path.exists(os.path.join(FOLDER_TTD, f))
+                for f in ["ttd_day.png", "ttd_night.png", "ttd_diperiksa.png", "ttd_disetujui.png"]
+            )
+
             def icon(ok):
-                return "✅" if ok else "⚠️"
-            
-            teks_ds = f"{icon(n_ds >= total_tp)} Data Day Shift ({n_ds}/{total_tp})"
+                return "OK" if ok else "—"
+
+            teks_ds = icon(n_ds >= total_tp) + " Data Day Shift (" + str(n_ds) + "/" + str(total_tp) + ")"
             if belum_ds:
-                teks_ds += f" — kurang: {', '.join(belum_ds)}"
-            
-            teks_ns = f"{icon(n_ns >= total_tp)} Data Night Shift ({n_ns}/{total_tp})"
+                teks_ds += " — kurang: " + ", ".join(belum_ds)
+            teks_ns = icon(n_ns >= total_tp) + " Data Night Shift (" + str(n_ns) + "/" + str(total_tp) + ")"
             if belum_ns:
-                teks_ns += f" — kurang: {', '.join(belum_ns)}"
-            
-            st.markdown(f"""
-            <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;
-                        padding:14px 16px;margin:10px 0 14px 0;">
-                <div style="font-weight:700;color:#0D47A1;margin-bottom:8px;">
-                    Kelengkapan laporan — {tgl_pdf.strftime('%d %B %Y')}
-                </div>
-                <div style="font-size:13.5px;line-height:1.75;color:#334155;">
-                    {teks_ds}<br>
-                    {teks_ns}<br>
-                    {icon(ada_kes)} Kesimpulan {"sudah ada" if ada_kes else "belum dipilih"}<br>
-                    {icon(jml_foto > 0)} Foto terupload: {jml_foto} file<br>
-                    {icon(ada_peta1 and ada_peta2)} Peta 1 &amp; 2 {"lengkap" if (ada_peta1 and ada_peta2) else "belum lengkap"}<br>
-                    {icon(ada_ttd)} Tanda tangan {"sudah diupload" if ada_ttd else "belum diupload"}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            if st.button("Generate PDF Laporan", type="primary"):
-                with st.spinner("Sedang membuat PDF..."):
-                    try:
-                        pdf_data = buat_pdf_laporan(df_db, tgl_pdf)
-                        st.download_button(
-                            "Download PDF",
-                            data=pdf_data,
-                            file_name=f"Laporan_Pemantauan_Udara_{tgl_pdf.strftime('%Y%m%d')}.pdf",
-                            mime="application/pdf"
+                teks_ns += " — kurang: " + ", ".join(belum_ns)
+
+            st.info(
+                "Kelengkapan " + tgl_pdf.strftime("%d %B %Y") + "\n\n"
+                + teks_ds + "\n"
+                + teks_ns + "\n"
+                + icon(ada_kes) + " Kesimpulan: " + ("ada" if ada_kes else "belum") + "\n"
+                + icon(jml_foto > 0) + " Foto: " + str(jml_foto) + " file\n"
+                + icon(ada_peta1 and ada_peta2) + " Peta: " + ("lengkap" if (ada_peta1 and ada_peta2) else "belum") + "\n"
+                + icon(ada_ttd) + " Tanda tangan: " + ("ada" if ada_ttd else "belum")
+            )
+
+            if role in ["petugas", "admin"] and status_now in ["Draft", "Ditolak"]:
+                list_email_dip = load_email_list(FILE_EMAIL_DIPERIKSA, ["dltdelta84@gmail.com"])
+                email_tujuan = st.selectbox(
+                    "Email notifikasi Environment Officer",
+                    options=list_email_dip if list_email_dip else ["(isi dulu di Kelola Notifikasi)"],
+                    key="email_ajukan",
+                )
+                if st.button("Ajukan Laporan untuk Diperiksa", type="primary", key="btn_ajukan"):
+                    if not list_email_dip:
+                        st.error("Belum ada email Diperiksa. Isi di Kelola Master Data - Kelola Notifikasi.")
+                    else:
+                        upsert_status(
+                            tgl_pdf_str,
+                            Status="Menunggu Diperiksa",
+                            Diajukan_Oleh=str(nama_user),
+                            Waktu_Ajukan=datetime.now().strftime("%Y-%m-%d %H:%M"),
+                            Email_Diperiksa=str(email_tujuan),
+                            Catatan_Tolak="",
+                            Ditolak_Oleh="",
+                            Waktu_Tolak="",
                         )
-                        st.success("PDF berhasil dibuat!")
-                    except Exception as e:
-                        st.error(f"Gagal membuat PDF: {e}")
-    
+                        body = (
+                            "Yth. Environment Officer,\n\n"
+                            "Laporan Pemantauan Udara Sesaat tanggal " + tgl_pdf_str
+                            + " telah diajukan oleh " + str(nama_user) + ".\n"
+                            "Status: Menunggu Diperiksa.\n\n"
+                            "Silakan login aplikasi - menu Persetujuan Laporan.\n\n"
+                            "PEPC Zona 12 - Sistem Pemantauan Udara Sesaat"
+                        )
+                        ok, msg = kirim_email(
+                            email_tujuan,
+                            "[PEPC] Laporan " + tgl_pdf_str + " menunggu diperiksa",
+                            body,
+                        )
+                        if ok:
+                            st.success("Laporan diajukan. " + msg)
+                        else:
+                            st.warning("Laporan diajukan, tetapi email gagal: " + msg)
+                        st.rerun()
+            elif role in ["petugas", "admin"] and status_now == "Menunggu Diperiksa":
+                st.info("Menunggu persetujuan Environment Officer.")
+            elif role in ["petugas", "admin"] and status_now == "Menunggu Disetujui":
+                st.info("Menunggu persetujuan Superintendent HSSE.")
+
+            boleh_pdf = status_now == "Final" or role in ["diperiksa", "disetujui", "admin"]
+            if boleh_pdf:
+                label = "Generate & Download PDF Laporan" if status_now == "Final" else "Preview / Download PDF (review)"
+                if status_now != "Final":
+                    st.caption("Preview untuk pemeriksaan. Petugas unduh resmi setelah Final.")
+                if st.button(label, type="primary", key="btn_pdf_gen"):
+                    with st.spinner("Membuat PDF..."):
+                        try:
+                            pdf_data = buat_pdf_laporan(df_db, tgl_pdf)
+                            st.download_button(
+                                "Download PDF",
+                                data=pdf_data,
+                                file_name="Laporan_Pemantauan_Udara_" + tgl_pdf.strftime("%Y%m%d") + ".pdf",
+                                mime="application/pdf",
+                            )
+                            st.success("PDF siap.")
+                        except Exception as e:
+                            st.error("Gagal: " + str(e))
+            else:
+                st.warning("PDF resmi petugas hanya setelah status Final.")
+
+    # ===================== PERSETUJUAN =====================
+    elif pilihan_menu == "3b. Persetujuan Laporan":
+        st.markdown("### Persetujuan Laporan")
+        if role not in ["diperiksa", "disetujui", "admin"]:
+            st.warning("Anda tidak memiliki akses menu ini.")
+            return
+        df_st = load_status_laporan()
+
+        if role in ["diperiksa", "admin"]:
+            st.markdown("#### Menunggu Diperiksa (Environment Officer)")
+            pending1 = df_st[df_st["Status"] == "Menunggu Diperiksa"] if not df_st.empty else pd.DataFrame()
+            if pending1.empty:
+                st.info("Tidak ada laporan menunggu diperiksa.")
+            else:
+                kol = [c for c in ["Tanggal", "Diajukan_Oleh", "Waktu_Ajukan", "Email_Diperiksa", "Status"] if c in pending1.columns]
+                st.dataframe(pending1[kol], use_container_width=True, hide_index=True)
+                tgl_pilih = st.selectbox("Pilih tanggal", pending1["Tanggal"].astype(str).tolist(), key="tgl_periksa")
+                list_email_dis = load_email_list(FILE_EMAIL_DISETUJUI, ["delta.unigoro@gmail.com"])
+                email_sup = st.selectbox(
+                    "Email notifikasi Superintendent",
+                    options=list_email_dis if list_email_dis else ["(isi Kelola Notifikasi)"],
+                    key="email_ke_sup",
+                )
+                catatan1 = st.text_area("Catatan (wajib jika tolak)", key="cat_periksa")
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("Setujui - Kirim ke Superintendent", type="primary", key="ok_periksa"):
+                        if not list_email_dis:
+                            st.error("Belum ada email Disetujui.")
+                        else:
+                            upsert_status(
+                                str(tgl_pilih),
+                                Status="Menunggu Disetujui",
+                                Diperiksa_Oleh=str(nama_user),
+                                Waktu_Diperiksa=datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                Email_Disetujui=str(email_sup),
+                                Catatan_Tolak="",
+                            )
+                            body = (
+                                "Yth. Superintendent HSSE,\n\n"
+                                "Laporan tanggal " + str(tgl_pilih)
+                                + " telah diperiksa oleh " + str(nama_user) + ".\n"
+                                "Status: Menunggu Disetujui.\n\n"
+                                "Login aplikasi - Persetujuan Laporan.\n\nPEPC Zona 12"
+                            )
+                            ok, msg = kirim_email(
+                                email_sup,
+                                "[PEPC] Laporan " + str(tgl_pilih) + " menunggu disetujui",
+                                body,
+                            )
+                            if ok:
+                                st.success("Disetujui ke Superintendent. " + msg)
+                            else:
+                                st.warning("Status disimpan. Email gagal: " + msg)
+                            st.rerun()
+                with c2:
+                    if st.button("Tolak", key="tolak_periksa"):
+                        if not catatan1.strip():
+                            st.error("Catatan wajib saat menolak.")
+                        else:
+                            upsert_status(
+                                str(tgl_pilih),
+                                Status="Ditolak",
+                                Ditolak_Oleh=str(nama_user),
+                                Waktu_Tolak=datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                Catatan_Tolak=str(catatan1.strip()),
+                            )
+                            st.warning("Laporan ditolak.")
+                            st.rerun()
+
+        st.markdown("---")
+        if role in ["disetujui", "admin"]:
+            st.markdown("#### Menunggu Disetujui (Superintendent HSSE)")
+            pending2 = df_st[df_st["Status"] == "Menunggu Disetujui"] if not df_st.empty else pd.DataFrame()
+            if pending2.empty:
+                st.info("Tidak ada laporan menunggu disetujui.")
+            else:
+                kol2 = [c for c in ["Tanggal", "Diajukan_Oleh", "Diperiksa_Oleh", "Waktu_Diperiksa", "Status"] if c in pending2.columns]
+                st.dataframe(pending2[kol2], use_container_width=True, hide_index=True)
+                tgl_pilih2 = st.selectbox("Pilih tanggal", pending2["Tanggal"].astype(str).tolist(), key="tgl_setujui")
+                catatan2 = st.text_area("Catatan (wajib jika tolak)", key="cat_setujui")
+                c3, c4 = st.columns(2)
+                with c3:
+                    if st.button("Setujui Final", type="primary", key="ok_setujui"):
+                        upsert_status(
+                            str(tgl_pilih2),
+                            Status="Final",
+                            Disetujui_Oleh=str(nama_user),
+                            Waktu_Disetujui=datetime.now().strftime("%Y-%m-%d %H:%M"),
+                            Catatan_Tolak="",
+                        )
+                        st.success("Laporan Final. Petugas dapat mengunduh PDF.")
+                        st.rerun()
+                with c4:
+                    if st.button("Tolak", key="tolak_setujui"):
+                        if not catatan2.strip():
+                            st.error("Catatan wajib saat menolak.")
+                        else:
+                            upsert_status(
+                                str(tgl_pilih2),
+                                Status="Ditolak",
+                                Ditolak_Oleh=str(nama_user),
+                                Waktu_Tolak=datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                Catatan_Tolak=str(catatan2.strip()),
+                            )
+                            st.warning("Laporan ditolak.")
+                            st.rerun()
+
+    # ===================== CEK KESIAPAN ALAT =====================
     elif pilihan_menu == "4. Cek Kesiapan Alat":
         st.markdown("### 4. Cek Kesiapan Alat")
-        st.caption("Pilih alat dulu — indikator akan menyesuaikan. Centang jika berfungsi normal.")
-        
+        st.caption("Pilih alat - indikator menyesuaikan. Centang jika normal.")
         if os.path.exists(FILE_ALAT):
             df_alat = pd.read_excel(FILE_ALAT)
         else:
             df_alat = pd.DataFrame(columns=[
                 "Nama_Alat", "Tanggal_Inspeksi", "Tanggal_Berikutnya",
-                "Indikator", "Status", "Petugas", "Keterangan"
+                "Indikator", "Status", "Petugas", "Keterangan",
             ])
-        
         hari_ini = datetime.now().date()
-        perlu_update = False
         if not df_alat.empty and "Tanggal_Berikutnya" in df_alat.columns:
+            perlu = False
             for idx, row in df_alat.iterrows():
                 try:
-                    tgl_next = pd.to_datetime(row["Tanggal_Berikutnya"]).date()
-                    if tgl_next < hari_ini and row["Status"] == "Siap Pakai":
+                    if pd.to_datetime(row["Tanggal_Berikutnya"]).date() < hari_ini and row["Status"] == "Siap Pakai":
                         df_alat.at[idx, "Status"] = "Belum dicek"
-                        perlu_update = True
-                except:
+                        perlu = True
+                except Exception:
                     pass
-            if perlu_update:
+            if perlu:
                 df_alat.to_excel(FILE_ALAT, index=False)
-        
+
         st.markdown("#### Status Terkini")
-        cols = st.columns(min(4, len(daftar_alat)) or 1)
+        cols = st.columns(min(4, max(len(daftar_alat), 1)))
         for i, nama in enumerate(daftar_alat):
             with cols[i % 4]:
                 last = df_alat[df_alat["Nama_Alat"] == nama].tail(1)
                 if len(last) > 0:
-                    status = last.iloc[0]["Status"]
-                    tgl = last.iloc[0]["Tanggal_Inspeksi"]
-                    tgl_next = last.iloc[0].get("Tanggal_Berikutnya", "-")
-                    if status == "Siap Pakai":
-                        st.success(f"**{nama}**\n\n✅ Siap Pakai\n\n{tgl} → {tgl_next}")
-                    elif status == "Tidak Siap":
-                        st.warning(f"**{nama}**\n\n⚠️ Tidak Siap\n\n{tgl}")
+                    st_ = last.iloc[0]["Status"]
+                    if st_ == "Siap Pakai":
+                        st.success("**" + nama + "**\n\nSiap Pakai")
+                    elif st_ == "Tidak Siap":
+                        st.warning("**" + nama + "**\n\nTidak Siap")
                     else:
-                        st.error(f"**{nama}**\n\n❌ Belum dicek")
+                        st.error("**" + nama + "**\n\nBelum dicek")
                 else:
-                    st.warning(f"**{nama}**\n\nBelum dicek")
-        
+                    st.warning("**" + nama + "**\n\nBelum dicek")
+
         st.markdown("---")
-        st.markdown("#### Form Cek Kesiapan")
-        
         alat = st.selectbox("Pilih Alat *", daftar_alat, key="pilih_alat_cek")
-        
-        nama_lower = alat.lower() if alat else ""
-        if "so2" in nama_lower:
+        nl = (alat or "").lower()
+        if "so2" in nl:
             jenis = "SO2"
-        elif "noise" in nama_lower or "sound" in nama_lower or "kebisingan" in nama_lower:
+        elif any(x in nl for x in ["noise", "sound", "kebisingan"]):
             jenis = "Noise"
         else:
             jenis = "Multiple"
-        
+
         with st.form("form_cek_kesiapan"):
             tgl_insp = st.date_input("Tanggal Cek *", datetime.now())
-            interval = st.number_input("Interval pengecekan berikutnya (hari) *", 1, 365, 30)
+            interval = st.number_input("Interval berikutnya (hari) *", 1, 365, 30)
             petugas = st.text_input("Petugas *", value=nama_user)
-            
-            st.markdown(f"**Checklist Indikator — {alat}**")
-            st.caption("Centang jika indikator berfungsi normal.")
-            
+            st.markdown("**Checklist — " + str(alat) + "**")
             if jenis == "Multiple":
-                c1, c2, c3, c4 = st.columns(4)
-                with c1:
+                a, b, c, d = st.columns(4)
+                with a:
                     chk_h2s = st.checkbox("H2S OK", value=True)
-                with c2:
+                with b:
                     chk_co = st.checkbox("CO OK", value=True)
-                with c3:
+                with c:
                     chk_o2 = st.checkbox("O2 OK", value=True)
-                with c4:
+                with d:
                     chk_lel = st.checkbox("LEL OK", value=True)
                 semua_ok = chk_h2s and chk_co and chk_o2 and chk_lel
-                indikator_str = f"H2S:{'Ya' if chk_h2s else 'Tidak'}, CO:{'Ya' if chk_co else 'Tidak'}, O2:{'Ya' if chk_o2 else 'Tidak'}, LEL:{'Ya' if chk_lel else 'Tidak'}"
-            
+                ind = (
+                    "H2S:" + ("Ya" if chk_h2s else "Tidak")
+                    + ", CO:" + ("Ya" if chk_co else "Tidak")
+                    + ", O2:" + ("Ya" if chk_o2 else "Tidak")
+                    + ", LEL:" + ("Ya" if chk_lel else "Tidak")
+                )
             elif jenis == "SO2":
-                chk_so2 = st.checkbox("SO2 OK", value=True)
-                semua_ok = chk_so2
-                indikator_str = f"SO2:{'Ya' if chk_so2 else 'Tidak'}"
-            
+                chk = st.checkbox("SO2 OK", value=True)
+                semua_ok = chk
+                ind = "SO2:" + ("Ya" if chk else "Tidak")
             else:
-                chk_noise = st.checkbox("Noise / Sound Level Meter OK", value=True)
-                semua_ok = chk_noise
-                indikator_str = f"Noise:{'Ya' if chk_noise else 'Tidak'}"
-            
-            if semua_ok:
-                st.success("Semua indikator OK → Status akan **Siap Pakai**")
-                ket = st.text_area("Keterangan (opsional)")
-            else:
-                st.warning("Ada indikator tidak dicentang → Status **Tidak Siap**. Keterangan **wajib**.")
-                ket = st.text_area("Keterangan * (wajib)", placeholder="Contoh: Indikator CO sedang bermasalah")
-            
+                chk = st.checkbox("Noise OK", value=True)
+                semua_ok = chk
+                ind = "Noise:" + ("Ya" if chk else "Tidak")
+
+            label_ket = "Keterangan * (wajib)" if not semua_ok else "Keterangan (opsional)"
+            ket = st.text_area(label_ket, placeholder="Contoh: sensor bermasalah" if not semua_ok else "")
             if st.form_submit_button("Simpan Hasil Cek", type="primary"):
                 if not petugas.strip():
-                    st.error("Petugas wajib diisi")
+                    st.error("Petugas wajib")
                 elif not semua_ok and not ket.strip():
-                    st.error("Keterangan wajib diisi jika ada indikator yang tidak dicentang")
+                    st.error("Keterangan wajib jika ada yang tidak dicentang")
                 else:
                     status = "Siap Pakai" if semua_ok else "Tidak Siap"
                     tgl_next = (tgl_insp + timedelta(days=interval)).strftime("%Y-%m-%d")
@@ -1027,403 +1311,361 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username=""):
                         "Nama_Alat": alat,
                         "Tanggal_Inspeksi": tgl_insp.strftime("%Y-%m-%d"),
                         "Tanggal_Berikutnya": tgl_next,
-                        "Indikator": indikator_str,
+                        "Indikator": ind,
                         "Status": status,
                         "Petugas": petugas.strip(),
-                        "Keterangan": ket.strip() if ket else ""
+                        "Keterangan": ket.strip() if ket else "",
                     }])
-                    for col in ["Nama_Alat","Tanggal_Inspeksi","Tanggal_Berikutnya","Indikator","Status","Petugas","Keterangan"]:
+                    for col in baru.columns:
                         if col not in df_alat.columns:
                             df_alat[col] = ""
-                    df_alat = pd.concat([df_alat, baru], ignore_index=True)
-                    df_alat.to_excel(FILE_ALAT, index=False)
-                    if status == "Siap Pakai":
-                        st.success("✅ Tersimpan. Status: **Siap Pakai**")
-                    else:
-                        st.warning(f"⚠️ Tersimpan. Status: **Tidak Siap** — {ket}")
+                    pd.concat([df_alat, baru], ignore_index=True).to_excel(FILE_ALAT, index=False)
+                    st.success("Tersimpan: " + status)
                     st.rerun()
-        
+
         if not df_alat.empty:
-            st.markdown("---")
-            st.markdown("#### Riwayat Cek Kesiapan")
-            st.dataframe(df_alat.sort_values("Tanggal_Inspeksi", ascending=False), use_container_width=True, hide_index=True)
-    
+            st.markdown("#### Riwayat")
+            st.dataframe(
+                df_alat.sort_values("Tanggal_Inspeksi", ascending=False),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    # ===================== MASTER DATA =====================
     elif pilihan_menu == "5. Kelola Master Data":
         st.markdown("### 5. Kelola Master Data")
-        
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-            "Kelola Titik Pantau", "Kelola Daftar Alat", "Upload Peta Laporan", 
-            "Nama Pejabat", "Upload Tanda Tangan", "Kelola Kesimpulan"
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+            "Kelola Titik Pantau",
+            "Kelola Daftar Alat",
+            "Upload Peta Laporan",
+            "Nama Pejabat",
+            "Upload Tanda Tangan",
+            "Kelola Kesimpulan",
+            "Kelola Notifikasi",
         ])
-        
+
         with tab1:
-            st.markdown("#### Daftar Titik Pantau Saat Ini")
-            
+            st.markdown("#### Titik Pantau")
             if os.path.exists(FILE_TITIK):
                 df_titik = pd.read_excel(FILE_TITIK)
             else:
                 data = []
-                for kode, v in DEFAULT_TITIK.items():
+                for k, v in DEFAULT_TITIK.items():
                     data.append({
-                        "Kode": kode, "Lokasi": v["Lokasi"],
-                        "Latitude": v["Lat"], "Longitude": v["Long"],
-                        "Latitude_NS": v["LatNS"], "Longitude_NS": v["LongNS"]
+                        "Kode": k, "Lokasi": v["Lokasi"], "Latitude": v["Lat"], "Longitude": v["Long"],
+                        "Latitude_NS": v["LatNS"], "Longitude_NS": v["LongNS"],
                     })
                 df_titik = pd.DataFrame(data)
                 df_titik.to_excel(FILE_TITIK, index=False)
-            
             st.dataframe(df_titik, use_container_width=True, hide_index=True)
-            
-            st.markdown("---")
-            st.markdown("#### Tambah / Update / Hapus Titik")
-            
-            mode_titik = st.radio("Pilih Aksi", ["Tambah Titik Baru", "Update Titik", "Hapus Titik"], horizontal=True, key="mode_titik")
-            
-            with st.form("form_titik_baru"):
+            mode_titik = st.radio("Aksi", ["Tambah Titik Baru", "Update Titik", "Hapus Titik"], horizontal=True, key="mode_titik")
+            with st.form("form_titik"):
                 if mode_titik == "Tambah Titik Baru":
-                    kode = st.text_input("Kode Titik (contoh: TP 7) *")
-                    lokasi = st.text_input("Nama Lokasi *")
+                    kode = st.text_input("Kode *")
+                    lokasi = st.text_input("Lokasi *")
                     lat = st.text_input("Latitude *")
                     long = st.text_input("Longitude *")
                     lat_ns = st.text_input("Latitude NS")
                     long_ns = st.text_input("Longitude NS")
                 elif mode_titik == "Update Titik":
                     list_kode = df_titik["Kode"].tolist() if not df_titik.empty else []
-                    kode = st.selectbox("Pilih Kode Titik yang ingin diubah *", list_kode)
-                    if kode and not df_titik.empty:
-                        row_lama = df_titik[df_titik["Kode"] == kode].iloc[0]
-                        lokasi = st.text_input("Nama Lokasi *", value=str(row_lama["Lokasi"]))
-                        lat = st.text_input("Latitude *", value=str(row_lama["Latitude"]))
-                        long = st.text_input("Longitude *", value=str(row_lama["Longitude"]))
-                        lat_ns = st.text_input("Latitude NS", value=str(row_lama["Latitude_NS"]))
-                        long_ns = st.text_input("Longitude NS", value=str(row_lama["Longitude_NS"]))
-                    else:
-                        lokasi = st.text_input("Nama Lokasi *")
-                        lat = st.text_input("Latitude *")
-                        long = st.text_input("Longitude *")
-                        lat_ns = st.text_input("Latitude NS")
-                        long_ns = st.text_input("Longitude NS")
+                    kode = st.selectbox("Kode *", list_kode)
+                    row = df_titik[df_titik["Kode"] == kode].iloc[0] if kode and len(df_titik) else None
+                    lokasi = st.text_input("Lokasi *", value=str(row["Lokasi"]) if row is not None else "")
+                    lat = st.text_input("Latitude *", value=str(row["Latitude"]) if row is not None else "")
+                    long = st.text_input("Longitude *", value=str(row["Longitude"]) if row is not None else "")
+                    lat_ns = st.text_input("Latitude NS", value=str(row["Latitude_NS"]) if row is not None else "")
+                    long_ns = st.text_input("Longitude NS", value=str(row["Longitude_NS"]) if row is not None else "")
                 else:
                     list_kode = df_titik["Kode"].tolist() if not df_titik.empty else []
-                    kode = st.selectbox("Pilih Kode Titik yang ingin dihapus *", list_kode)
+                    kode = st.selectbox("Hapus kode *", list_kode)
                     lokasi = lat = long = lat_ns = long_ns = ""
-                    st.warning(f"Titik **{kode}** akan dihapus permanen.")
-                
-                submitted = st.form_submit_button("Simpan Perubahan", type="primary", use_container_width=True)
-                
-                if submitted:
+                if st.form_submit_button("Simpan", type="primary"):
                     if mode_titik == "Tambah Titik Baru":
-                        if not kode.strip() or not lokasi.strip() or not lat.strip() or not long.strip():
-                            st.error("Kode, Lokasi, Latitude, dan Longitude wajib diisi!")
-                        elif kode.strip() in df_titik["Kode"].values:
-                            st.error(f"Kode **{kode}** sudah ada.")
+                        if not all([str(kode).strip(), lokasi.strip(), lat.strip(), long.strip()]):
+                            st.error("Field wajib belum lengkap")
+                        elif str(kode).strip() in df_titik["Kode"].values:
+                            st.error("Kode sudah ada")
                         else:
-                            baru = pd.DataFrame([{"Kode": kode.strip(), "Lokasi": lokasi.strip(), "Latitude": lat.strip(), "Longitude": long.strip(),
-                                                  "Latitude_NS": lat_ns.strip() if lat_ns.strip() else lat.strip(),
-                                                  "Longitude_NS": long_ns.strip() if long_ns.strip() else long.strip()}])
-                            df_titik = pd.concat([df_titik, baru], ignore_index=True)
-                            df_titik.to_excel(FILE_TITIK, index=False)
-                            st.success(f"Titik **{kode}** berhasil ditambahkan!")
+                            baru = pd.DataFrame([{
+                                "Kode": str(kode).strip(), "Lokasi": lokasi.strip(),
+                                "Latitude": lat.strip(), "Longitude": long.strip(),
+                                "Latitude_NS": lat_ns.strip() or lat.strip(),
+                                "Longitude_NS": long_ns.strip() or long.strip(),
+                            }])
+                            pd.concat([df_titik, baru], ignore_index=True).to_excel(FILE_TITIK, index=False)
+                            st.success("Ditambahkan")
                             st.rerun()
                     elif mode_titik == "Update Titik":
-                        if not kode or not lokasi.strip() or not lat.strip() or not long.strip():
-                            st.error("Lokasi, Latitude, dan Longitude wajib diisi!")
-                        else:
-                            df_titik.loc[df_titik["Kode"] == kode, ["Lokasi", "Latitude", "Longitude", "Latitude_NS", "Longitude_NS"]] = [
-                                lokasi.strip(), lat.strip(), long.strip(),
-                                lat_ns.strip() if lat_ns.strip() else lat.strip(),
-                                long_ns.strip() if long_ns.strip() else long.strip()
-                            ]
-                            df_titik.to_excel(FILE_TITIK, index=False)
-                            st.success(f"Titik **{kode}** berhasil diperbarui!")
-                            st.rerun()
-                    elif mode_titik == "Hapus Titik":
-                        if kode:
-                            df_titik = df_titik[df_titik["Kode"] != kode].reset_index(drop=True)
-                            df_titik.to_excel(FILE_TITIK, index=False)
-                            st.success(f"Titik **{kode}** berhasil dihapus!")
-                            st.rerun()
-        
+                        df_titik.loc[df_titik["Kode"] == kode, ["Lokasi", "Latitude", "Longitude", "Latitude_NS", "Longitude_NS"]] = [
+                            lokasi.strip(), lat.strip(), long.strip(),
+                            lat_ns.strip() or lat.strip(), long_ns.strip() or long.strip(),
+                        ]
+                        df_titik.to_excel(FILE_TITIK, index=False)
+                        st.success("Diperbarui")
+                        st.rerun()
+                    else:
+                        df_titik[df_titik["Kode"] != kode].to_excel(FILE_TITIK, index=False)
+                        st.success("Dihapus")
+                        st.rerun()
+
         with tab2:
-            st.markdown("#### Daftar Alat Saat Ini")
+            st.markdown("#### Daftar Alat")
             if os.path.exists(FILE_MASTER_ALAT):
                 df_master = pd.read_excel(FILE_MASTER_ALAT)
             else:
                 df_master = pd.DataFrame({"Nama_Alat": DEFAULT_ALAT})
                 df_master.to_excel(FILE_MASTER_ALAT, index=False)
-            
             st.dataframe(df_master, use_container_width=True, hide_index=True)
-            st.markdown("---")
-            st.markdown("#### Tambah / Update / Hapus Alat")
-            st.caption("Tips nama: **Gas Detector 1**, **SO2 Detector 1**, **Noise Level Meter 1** agar checklist otomatis sesuai.")
-            
-            mode_alat = st.radio("Pilih Aksi", ["Tambah Alat Baru", "Update Nama Alat", "Hapus Alat"], horizontal=True, key="mode_alat")
-            
-            with st.form("form_alat_baru"):
+            mode_alat = st.radio("Aksi", ["Tambah Alat Baru", "Update Nama Alat", "Hapus Alat"], horizontal=True, key="mode_alat")
+            with st.form("form_alat"):
                 if mode_alat == "Tambah Alat Baru":
-                    nama_alat = st.text_input("Nama Alat Baru *")
+                    nama_alat = st.text_input("Nama Alat *")
                     nama_lama = None
                 elif mode_alat == "Update Nama Alat":
-                    list_alat = df_master["Nama_Alat"].tolist() if not df_master.empty else []
-                    nama_lama = st.selectbox("Pilih Alat yang ingin diubah *", list_alat)
-                    nama_alat = st.text_input("Nama Baru *", value=nama_lama if nama_lama else "")
+                    list_a = df_master["Nama_Alat"].tolist()
+                    nama_lama = st.selectbox("Pilih alat", list_a)
+                    nama_alat = st.text_input("Nama baru *", value=nama_lama or "")
                 else:
-                    list_alat = df_master["Nama_Alat"].tolist() if not df_master.empty else []
-                    nama_alat = st.selectbox("Pilih Alat yang ingin dihapus *", list_alat)
+                    nama_alat = st.selectbox("Hapus", df_master["Nama_Alat"].tolist())
                     nama_lama = None
-                    st.warning(f"Alat **{nama_alat}** akan dihapus permanen.")
-                
-                submitted_alat = st.form_submit_button("Simpan Perubahan", type="primary", use_container_width=True)
-                
-                if submitted_alat:
+                if st.form_submit_button("Simpan", type="primary"):
                     if mode_alat == "Tambah Alat Baru":
-                        if not nama_alat.strip():
-                            st.error("Nama Alat wajib diisi!")
-                        elif nama_alat.strip() in df_master["Nama_Alat"].values:
-                            st.error(f"Alat **{nama_alat}** sudah ada.")
-                        else:
-                            df_master = pd.concat([df_master, pd.DataFrame([{"Nama_Alat": nama_alat.strip()}])], ignore_index=True)
-                            df_master.to_excel(FILE_MASTER_ALAT, index=False)
-                            st.success(f"Alat **{nama_alat}** berhasil ditambahkan!")
+                        if nama_alat.strip() and nama_alat.strip() not in df_master["Nama_Alat"].values:
+                            pd.concat([df_master, pd.DataFrame([{"Nama_Alat": nama_alat.strip()}])], ignore_index=True).to_excel(FILE_MASTER_ALAT, index=False)
+                            st.success("OK")
                             st.rerun()
                     elif mode_alat == "Update Nama Alat":
-                        if not nama_alat.strip() or not nama_lama:
-                            st.error("Nama baru wajib diisi!")
-                        else:
-                            df_master.loc[df_master["Nama_Alat"] == nama_lama, "Nama_Alat"] = nama_alat.strip()
-                            df_master.to_excel(FILE_MASTER_ALAT, index=False)
-                            st.success("Nama alat berhasil diubah!")
-                            st.rerun()
-                    elif mode_alat == "Hapus Alat":
-                        if nama_alat:
-                            df_master = df_master[df_master["Nama_Alat"] != nama_alat].reset_index(drop=True)
-                            df_master.to_excel(FILE_MASTER_ALAT, index=False)
-                            st.success(f"Alat **{nama_alat}** berhasil dihapus!")
-                            st.rerun()
-        
+                        df_master.loc[df_master["Nama_Alat"] == nama_lama, "Nama_Alat"] = nama_alat.strip()
+                        df_master.to_excel(FILE_MASTER_ALAT, index=False)
+                        st.success("OK")
+                        st.rerun()
+                    else:
+                        df_master[df_master["Nama_Alat"] != nama_alat].to_excel(FILE_MASTER_ALAT, index=False)
+                        st.success("OK")
+                        st.rerun()
+
         with tab3:
-            st.markdown("#### Upload Peta Monitoring untuk Laporan PDF")
-            st.caption("Upload 2 peta yang akan otomatis masuk ke laporan PDF.")
-            
+            st.markdown("#### Upload Peta")
             os.makedirs(FOLDER_PETA, exist_ok=True)
-            
-            col_p1, col_p2 = st.columns(2)
-            with col_p1:
-                st.markdown("**Peta 1**")
-                peta1 = st.file_uploader("Upload Peta 1", type=["jpg", "jpeg", "png"], key="peta1")
-                if peta1:
-                    with open(os.path.join(FOLDER_PETA, "peta_1.jpg"), "wb") as f:
-                        f.write(peta1.getbuffer())
-                    st.image(peta1, width=250)
-                    st.success("Peta 1 tersimpan")
-                elif os.path.exists(os.path.join(FOLDER_PETA, "peta_1.jpg")):
-                    st.image(os.path.join(FOLDER_PETA, "peta_1.jpg"), width=250)
-                    st.caption("Peta 1 sudah ada")
-            
-            with col_p2:
-                st.markdown("**Peta 2**")
-                peta2 = st.file_uploader("Upload Peta 2", type=["jpg", "jpeg", "png"], key="peta2")
-                if peta2:
-                    with open(os.path.join(FOLDER_PETA, "peta_2.jpg"), "wb") as f:
-                        f.write(peta2.getbuffer())
-                    st.image(peta2, width=250)
-                    st.success("Peta 2 tersimpan")
-                elif os.path.exists(os.path.join(FOLDER_PETA, "peta_2.jpg")):
-                    st.image(os.path.join(FOLDER_PETA, "peta_2.jpg"), width=250)
-                    st.caption("Peta 2 sudah ada")
-        
+            c1, c2 = st.columns(2)
+            with c1:
+                p1 = st.file_uploader("Peta 1", type=["jpg", "jpeg", "png"], key="peta1")
+                path_p1 = os.path.join(FOLDER_PETA, "peta_1.jpg")
+                if p1:
+                    with open(path_p1, "wb") as f:
+                        f.write(p1.getbuffer())
+                    st.image(p1, width=250)
+                    st.success("Peta 1 OK")
+                elif os.path.exists(path_p1):
+                    st.image(path_p1, width=250)
+            with c2:
+                p2 = st.file_uploader("Peta 2", type=["jpg", "jpeg", "png"], key="peta2")
+                path_p2 = os.path.join(FOLDER_PETA, "peta_2.jpg")
+                if p2:
+                    with open(path_p2, "wb") as f:
+                        f.write(p2.getbuffer())
+                    st.image(p2, width=250)
+                    st.success("Peta 2 OK")
+                elif os.path.exists(path_p2):
+                    st.image(path_p2, width=250)
+
         with tab4:
-            st.markdown("#### Pengaturan Nama Pejabat Laporan PDF")
-            st.caption("Nama Day Shift & Night Shift diambil otomatis dari data input.")
-            
+            st.markdown("#### Nama Pejabat PDF")
             peng = load_pengaturan_laporan()
-            
             with st.form("form_pejabat"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    nama_diperiksa = st.text_input("Nama Diperiksa oleh", value=peng["Nama_Diperiksa"])
-                    jabatan_diperiksa = st.text_input("Jabatan Diperiksa oleh", value=peng["Jabatan_Diperiksa"])
-                with col2:
-                    nama_disetujui = st.text_input("Nama Disetujui oleh", value=peng["Nama_Disetujui"])
-                    jabatan_disetujui = st.text_input("Jabatan Disetujui oleh", value=peng["Jabatan_Disetujui"])
-                
-                if st.form_submit_button("Simpan Pengaturan", type="primary"):
-                    df_simpan = pd.DataFrame([{
-                        "Nama_Diperiksa": nama_diperiksa,
-                        "Jabatan_Diperiksa": jabatan_diperiksa,
-                        "Nama_Disetujui": nama_disetujui,
-                        "Jabatan_Disetujui": jabatan_disetujui
-                    }])
-                    df_simpan.to_excel(FILE_PENGATURAN, index=False)
-                    st.success("Pengaturan berhasil disimpan!")
+                a, b = st.columns(2)
+                with a:
+                    nd = st.text_input("Nama Diperiksa", value=peng["Nama_Diperiksa"])
+                    jd = st.text_input("Jabatan Diperiksa", value=peng["Jabatan_Diperiksa"])
+                with b:
+                    ns = st.text_input("Nama Disetujui", value=peng["Nama_Disetujui"])
+                    js = st.text_input("Jabatan Disetujui", value=peng["Jabatan_Disetujui"])
+                if st.form_submit_button("Simpan", type="primary"):
+                    pd.DataFrame([{
+                        "Nama_Diperiksa": nd,
+                        "Jabatan_Diperiksa": jd,
+                        "Nama_Disetujui": ns,
+                        "Jabatan_Disetujui": js,
+                    }]).to_excel(FILE_PENGATURAN, index=False)
+                    st.success("OK")
                     st.rerun()
-        
+
         with tab5:
-            st.markdown("#### Upload Tanda Tangan untuk Laporan PDF")
-            st.caption("Upload 4 gambar tanda tangan (PNG/JPG).")
-            
+            st.markdown("#### Upload Tanda Tangan")
             os.makedirs(FOLDER_TTD, exist_ok=True)
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("**Tanda Tangan Day Shift**")
-                ttd1 = st.file_uploader("Upload TTD Day Shift", type=["png", "jpg", "jpeg"], key="ttd_ds")
-                if ttd1:
-                    with open(os.path.join(FOLDER_TTD, "ttd_day.png"), "wb") as f:
-                        f.write(ttd1.getbuffer())
-                    st.image(ttd1, width=200)
-                    st.success("TTD Day Shift tersimpan")
-                elif os.path.exists(os.path.join(FOLDER_TTD, "ttd_day.png")):
-                    st.image(os.path.join(FOLDER_TTD, "ttd_day.png"), width=200)
-                    st.caption("Sudah ada")
-            
-            with col2:
-                st.markdown("**Tanda Tangan Night Shift**")
-                ttd2 = st.file_uploader("Upload TTD Night Shift", type=["png", "jpg", "jpeg"], key="ttd_ns")
-                if ttd2:
-                    with open(os.path.join(FOLDER_TTD, "ttd_night.png"), "wb") as f:
-                        f.write(ttd2.getbuffer())
-                    st.image(ttd2, width=200)
-                    st.success("TTD Night Shift tersimpan")
-                elif os.path.exists(os.path.join(FOLDER_TTD, "ttd_night.png")):
-                    st.image(os.path.join(FOLDER_TTD, "ttd_night.png"), width=200)
-                    st.caption("Sudah ada")
-            
-            col3, col4 = st.columns(2)
-            with col3:
-                st.markdown("**Tanda Tangan Diperiksa oleh**")
-                ttd3 = st.file_uploader("Upload TTD Diperiksa", type=["png", "jpg", "jpeg"], key="ttd_dip")
-                if ttd3:
-                    with open(os.path.join(FOLDER_TTD, "ttd_diperiksa.png"), "wb") as f:
-                        f.write(ttd3.getbuffer())
-                    st.image(ttd3, width=200)
-                    st.success("TTD Diperiksa tersimpan")
-                elif os.path.exists(os.path.join(FOLDER_TTD, "ttd_diperiksa.png")):
-                    st.image(os.path.join(FOLDER_TTD, "ttd_diperiksa.png"), width=200)
-                    st.caption("Sudah ada")
-            
-            with col4:
-                st.markdown("**Tanda Tangan Disetujui oleh**")
-                ttd4 = st.file_uploader("Upload TTD Disetujui", type=["png", "jpg", "jpeg"], key="ttd_dis")
-                if ttd4:
-                    with open(os.path.join(FOLDER_TTD, "ttd_disetujui.png"), "wb") as f:
-                        f.write(ttd4.getbuffer())
-                    st.image(ttd4, width=200)
-                    st.success("TTD Disetujui tersimpan")
-                elif os.path.exists(os.path.join(FOLDER_TTD, "ttd_disetujui.png")):
-                    st.image(os.path.join(FOLDER_TTD, "ttd_disetujui.png"), width=200)
-                    st.caption("Sudah ada")
-        
+            items = [
+                ("Day Shift", "ttd_day.png", "ttd_ds"),
+                ("Night Shift", "ttd_night.png", "ttd_ns"),
+                ("Diperiksa", "ttd_diperiksa.png", "ttd_dip"),
+                ("Disetujui", "ttd_disetujui.png", "ttd_dis"),
+            ]
+            for label, fname, key in items:
+                st.markdown("**" + label + "**")
+                f = st.file_uploader("Upload " + label, type=["png", "jpg", "jpeg"], key=key)
+                path = os.path.join(FOLDER_TTD, fname)
+                if f:
+                    with open(path, "wb") as out:
+                        out.write(f.getbuffer())
+                    st.image(f, width=180)
+                    st.success("OK")
+                elif os.path.exists(path):
+                    st.image(path, width=180)
+
         with tab6:
-            st.markdown("#### Kelola Opsi Kesimpulan")
-            st.caption("Opsi ini muncul di Form Input Data (Pilih Kesimpulan). Yang dipilih saat input akan masuk ke laporan PDF.")
-            
+            st.markdown("#### Kelola Kesimpulan")
             if os.path.exists(FILE_KESIMPULAN):
                 df_kes = pd.read_excel(FILE_KESIMPULAN)
             else:
                 df_kes = pd.DataFrame({"Kesimpulan": DEFAULT_KESIMPULAN})
                 df_kes.to_excel(FILE_KESIMPULAN, index=False)
-            
             st.dataframe(df_kes, use_container_width=True, hide_index=True)
-            
-            st.markdown("---")
-            mode_kes = st.radio("Pilih Aksi", ["Tambah Kesimpulan", "Update Kesimpulan", "Hapus Kesimpulan"], horizontal=True, key="mode_kes")
-            
-            with st.form("form_kesimpulan"):
-                if mode_kes == "Tambah Kesimpulan":
-                    teks_kes = st.text_area("Teks Kesimpulan Baru *", height=80)
-                    idx_pilih = None
-                elif mode_kes == "Update Kesimpulan":
-                    list_kes = df_kes["Kesimpulan"].tolist() if not df_kes.empty else []
-                    idx_pilih = st.selectbox("Pilih kesimpulan yang ingin diubah *", range(len(list_kes)), format_func=lambda i: list_kes[i] if list_kes else "")
-                    teks_kes = st.text_area("Teks Baru *", value=list_kes[idx_pilih] if list_kes else "", height=80)
+            mode_kes = st.radio("Aksi", ["Tambah", "Update", "Hapus"], horizontal=True, key="mode_kes")
+            with st.form("form_kes"):
+                if mode_kes == "Tambah":
+                    teks = st.text_area("Teks *", height=80)
+                    idx = None
+                elif mode_kes == "Update":
+                    lst = df_kes["Kesimpulan"].tolist()
+                    idx = st.selectbox("Pilih", range(len(lst)), format_func=lambda i: lst[i])
+                    teks = st.text_area("Teks baru *", value=lst[idx], height=80)
                 else:
-                    list_kes = df_kes["Kesimpulan"].tolist() if not df_kes.empty else []
-                    idx_pilih = st.selectbox("Pilih kesimpulan yang ingin dihapus *", range(len(list_kes)), format_func=lambda i: list_kes[i] if list_kes else "")
-                    teks_kes = ""
-                    if list_kes:
-                        st.warning(f"Akan dihapus:\n\n**{list_kes[idx_pilih]}**")
-                
-                submitted_kes = st.form_submit_button("Simpan Perubahan", type="primary", use_container_width=True)
-                
-                if submitted_kes:
-                    if mode_kes == "Tambah Kesimpulan":
-                        if not teks_kes.strip():
-                            st.error("Teks kesimpulan wajib diisi!")
-                        else:
-                            df_kes = pd.concat([df_kes, pd.DataFrame([{"Kesimpulan": teks_kes.strip()}])], ignore_index=True)
-                            df_kes.to_excel(FILE_KESIMPULAN, index=False)
-                            st.success("Kesimpulan berhasil ditambahkan!")
-                            st.rerun()
-                    elif mode_kes == "Update Kesimpulan":
-                        if not teks_kes.strip():
-                            st.error("Teks baru wajib diisi!")
-                        else:
-                            df_kes.at[idx_pilih, "Kesimpulan"] = teks_kes.strip()
-                            df_kes.to_excel(FILE_KESIMPULAN, index=False)
-                            st.success("Kesimpulan berhasil diperbarui!")
-                            st.rerun()
-                    elif mode_kes == "Hapus Kesimpulan":
-                        if len(df_kes) <= 1:
-                            st.error("Minimal harus ada 1 kesimpulan.")
-                        else:
-                            df_kes = df_kes.drop(idx_pilih).reset_index(drop=True)
-                            df_kes.to_excel(FILE_KESIMPULAN, index=False)
-                            st.success("Kesimpulan berhasil dihapus!")
-                            st.rerun()
-    
+                    lst = df_kes["Kesimpulan"].tolist()
+                    idx = st.selectbox("Hapus", range(len(lst)), format_func=lambda i: lst[i])
+                    teks = ""
+                if st.form_submit_button("Simpan", type="primary"):
+                    if mode_kes == "Tambah" and teks.strip():
+                        pd.concat([df_kes, pd.DataFrame([{"Kesimpulan": teks.strip()}])], ignore_index=True).to_excel(FILE_KESIMPULAN, index=False)
+                        st.rerun()
+                    elif mode_kes == "Update" and teks.strip():
+                        df_kes.at[idx, "Kesimpulan"] = teks.strip()
+                        df_kes.to_excel(FILE_KESIMPULAN, index=False)
+                        st.rerun()
+                    elif mode_kes == "Hapus" and len(df_kes) > 1:
+                        df_kes.drop(idx).reset_index(drop=True).to_excel(FILE_KESIMPULAN, index=False)
+                        st.rerun()
+
+        with tab7:
+            st.markdown("#### Kelola Notifikasi Email")
+            st.caption("Daftar penerima + akun pengirim SMTP (lokal: smtp_config.xlsx).")
+            st.markdown("##### Akun pengirim (SMTP Gmail)")
+            sm_em, sm_pw = load_smtp_config()
+            with st.form("form_smtp"):
+                smtp_email = st.text_input("Email pengirim", value=sm_em)
+                smtp_pass = st.text_input("App Password", value=sm_pw, type="password")
+                if st.form_submit_button("Simpan SMTP", type="primary"):
+                    save_smtp_config(smtp_email, smtp_pass)
+                    st.success("SMTP disimpan di smtp_config.xlsx")
+                    st.rerun()
+
+            st.markdown("---")
+            st.markdown("##### Email Environment Officer (Diperiksa)")
+            emails_dip = load_email_list(FILE_EMAIL_DIPERIKSA, ["dltdelta84@gmail.com"])
+            st.dataframe(pd.DataFrame({"Email": emails_dip}), use_container_width=True, hide_index=True)
+            mode_ed = st.radio("Aksi Diperiksa", ["Tambah", "Hapus"], horizontal=True, key="mode_ed")
+            with st.form("form_email_dip"):
+                if mode_ed == "Tambah":
+                    em = st.text_input("Email", placeholder="dltdelta84@gmail.com")
+                else:
+                    em = st.selectbox("Hapus", emails_dip or ["-"])
+                if st.form_submit_button("Simpan daftar Diperiksa"):
+                    if mode_ed == "Tambah" and em.strip() and "@" in em and em.strip() not in emails_dip:
+                        emails_dip.append(em.strip())
+                        pd.DataFrame({"Email": emails_dip}).to_excel(FILE_EMAIL_DIPERIKSA, index=False)
+                        st.success("OK")
+                        st.rerun()
+                    elif mode_ed == "Hapus" and em in emails_dip:
+                        pd.DataFrame({"Email": [x for x in emails_dip if x != em]}).to_excel(FILE_EMAIL_DIPERIKSA, index=False)
+                        st.success("OK")
+                        st.rerun()
+
+            st.markdown("##### Email Superintendent (Disetujui)")
+            emails_dis = load_email_list(FILE_EMAIL_DISETUJUI, ["delta.unigoro@gmail.com"])
+            st.dataframe(pd.DataFrame({"Email": emails_dis}), use_container_width=True, hide_index=True)
+            mode_es = st.radio("Aksi Disetujui", ["Tambah", "Hapus"], horizontal=True, key="mode_es")
+            with st.form("form_email_dis"):
+                if mode_es == "Tambah":
+                    em2 = st.text_input("Email ", placeholder="delta.unigoro@gmail.com")
+                else:
+                    em2 = st.selectbox("Hapus ", emails_dis or ["-"])
+                if st.form_submit_button("Simpan daftar Disetujui"):
+                    if mode_es == "Tambah" and em2.strip() and "@" in em2 and em2.strip() not in emails_dis:
+                        emails_dis.append(em2.strip())
+                        pd.DataFrame({"Email": emails_dis}).to_excel(FILE_EMAIL_DISETUJUI, index=False)
+                        st.success("OK")
+                        st.rerun()
+                    elif mode_es == "Hapus" and em2 in emails_dis:
+                        pd.DataFrame({"Email": [x for x in emails_dis if x != em2]}).to_excel(FILE_EMAIL_DISETUJUI, index=False)
+                        st.success("OK")
+                        st.rerun()
+
+            st.markdown("---")
+            if st.button("Tes kirim email ke akun Diperiksa"):
+                tujuan = emails_dip[0] if emails_dip else "dltdelta84@gmail.com"
+                ok, msg = kirim_email(
+                    tujuan,
+                    "[PEPC] Tes notifikasi",
+                    "Ini email tes dari Aplikasi Pemantauan Udara Sesaat. Jika diterima, SMTP berhasil.",
+                )
+                if ok:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+
+    # ===================== KELOLA USER =====================
     elif pilihan_menu == "6. Kelola User":
-        if username != "admin":
-            st.warning("Anda tidak memiliki akses ke menu ini.")
+        if username != "admin" and role != "admin":
+            st.warning("Akses ditolak.")
             return
-        
-        st.markdown("### 6. Kelola User & Password")
-        
+        st.markdown("### 6. Kelola User")
         if not os.path.exists(FILE_USER):
             df_user = pd.DataFrame([
-                {"Username": "delta", "Password": "1234", "Nama": "Delta Candra"},
-                {"Username": "admin", "Password": "admin123", "Nama": "Admin"}
+                {"Username": "delta", "Password": "1234", "Nama": "Delta Candra", "Role": "petugas"},
+                {"Username": "environment", "Password": "env123", "Nama": "Environment Officer", "Role": "diperiksa"},
+                {"Username": "hsse", "Password": "hsse123", "Nama": "Superintendent HSSE", "Role": "disetujui"},
+                {"Username": "admin", "Password": "admin123", "Nama": "Admin", "Role": "admin"},
             ])
             df_user.to_excel(FILE_USER, index=False)
         else:
             df_user = pd.read_excel(FILE_USER)
-        
+            if "Role" not in df_user.columns:
+                df_user["Role"] = "petugas"
+                df_user.loc[df_user["Username"].astype(str).str.lower() == "admin", "Role"] = "admin"
+                df_user.to_excel(FILE_USER, index=False)
         st.dataframe(df_user, use_container_width=True, hide_index=True)
-        
-        st.markdown("---")
         with st.form("form_user"):
             username_in = st.text_input("Username")
             password = st.text_input("Password")
-            nama = st.text_input("Nama Tampilan")
-            
+            nama = st.text_input("Nama")
+            role_in = st.selectbox("Role", ["petugas", "diperiksa", "disetujui", "admin"])
             c1, c2 = st.columns(2)
             with c1:
-                simpan = st.form_submit_button("Tambah / Update User", type="primary")
+                simpan = st.form_submit_button("Tambah / Update", type="primary")
             with c2:
-                hapus = st.form_submit_button("Hapus User")
-            
+                hapus = st.form_submit_button("Hapus")
             if simpan:
-                if not username_in.strip() or not password.strip() or not nama.strip():
-                    st.error("Semua field wajib diisi")
-                else:
+                if username_in.strip() and password.strip() and nama.strip():
                     if username_in.strip() in df_user["Username"].values:
-                        df_user.loc[df_user["Username"]==username_in.strip(), ["Password","Nama"]] = [password, nama]
-                        st.success("User diperbarui")
+                        df_user.loc[df_user["Username"] == username_in.strip(), ["Password", "Nama", "Role"]] = [
+                            password, nama, role_in,
+                        ]
                     else:
-                        baru = pd.DataFrame([{"Username": username_in.strip(), "Password": password, "Nama": nama}])
-                        df_user = pd.concat([df_user, baru], ignore_index=True)
-                        st.success("User ditambahkan")
+                        df_user = pd.concat([
+                            df_user,
+                            pd.DataFrame([{
+                                "Username": username_in.strip(),
+                                "Password": password,
+                                "Nama": nama,
+                                "Role": role_in,
+                            }]),
+                        ], ignore_index=True)
                     df_user.to_excel(FILE_USER, index=False)
+                    st.success("OK")
                     st.rerun()
-            
             if hapus:
-                if username_in.strip() in df_user["Username"].values:
-                    if username_in.strip() == "admin":
-                        st.error("User admin tidak boleh dihapus")
-                    else:
-                        df_user = df_user[df_user["Username"] != username_in.strip()]
-                        df_user.to_excel(FILE_USER, index=False)
-                        st.success("User dihapus")
-                        st.rerun()
-                else:
-                    st.warning("Username tidak ditemukan")
+                if username_in.strip() == "admin":
+                    st.error("Admin tidak boleh dihapus")
+                elif username_in.strip() in df_user["Username"].values:
+                    df_user[df_user["Username"] != username_in.strip()].to_excel(FILE_USER, index=False)
+                    st.success("Dihapus")
+                    st.rerun()
