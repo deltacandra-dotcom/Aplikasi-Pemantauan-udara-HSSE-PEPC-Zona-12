@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 from datetime import datetime
+from supabase import create_client
 from gui_input import tampilkan_halaman_input
 from gui_output import tampilkan_halaman_output
 
@@ -213,20 +214,34 @@ if "logged_in" not in st.session_state:
     st.session_state.nama_user = ""
     st.session_state.role = "petugas"
 
-# ====================== LOGIN DARI SECRETS ======================
+# ====================== SUPABASE LOGIN ======================
+def get_supabase():
+    url = st.secrets["supabase"]["url"]
+    key = st.secrets["supabase"]["key"]
+    return create_client(url, key)
+
 def cek_login(username, password):
     try:
-        users = st.secrets["users"]
-        if username in users:
-            user_data = users[username]
-            if str(user_data["password"]) == str(password):
-                nama = user_data.get("nama", username)
-                role = str(user_data.get("role", "petugas")).strip().lower()
-                if role not in ["petugas", "diperiksa", "disetujui", "admin"]:
-                    role = "petugas"
-                return True, nama, role
-        return False, "", ""
-    except Exception:
+        sb = get_supabase()
+        res = (
+            sb.table("users")
+            .select("username, password, nama, role")
+            .eq("username", username)
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            return False, "", ""
+        row = res.data[0]
+        if str(row.get("password", "")) != str(password):
+            return False, "", ""
+        nama = str(row.get("nama", username) or username)
+        role = str(row.get("role", "petugas") or "petugas").strip().lower()
+        if role not in ["petugas", "diperiksa", "disetujui", "admin"]:
+            role = "petugas"
+        return True, nama, role
+    except Exception as e:
+        st.error("Gagal koneksi Supabase: " + str(e))
         return False, "", ""
 
 if not st.session_state.logged_in:

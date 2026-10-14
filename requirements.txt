@@ -3,3 +3,4 @@ reportlab
 openpyxl
 pandas
 streamlit
+supabase
