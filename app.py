@@ -17,6 +17,37 @@ FILE_DB = "database_monitoring_jtb.xlsx"
 FILE_ALAT = "database_inspeksi_alat.xlsx"
 FILE_TITIK = "master_titik_pantau.xlsx"
 
+# ====================== SUPABASE ======================
+def get_supabase():
+    return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
+
+def load_monitoring_df():
+    """Data monitoring dari Supabase (kolom seperti Excel lama)."""
+    try:
+        sb = get_supabase()
+        res = sb.table("monitoring").select("*").order("id", desc=False).execute()
+        rows = res.data or []
+        if not rows:
+            return pd.DataFrame(columns=[
+                "Tanggal", "Bulan", "Shift", "Waktu", "Petugas", "Kode_Titik", "Lokasi",
+                "H2S", "O2", "CO", "LEL", "SO2", "Noise", "Kesimpulan",
+                "Path_Foto", "Path_Foto2", "Status", "id",
+            ])
+        df = pd.DataFrame(rows)
+        rename = {
+            "tanggal": "Tanggal", "bulan": "Bulan", "shift": "Shift", "waktu": "Waktu",
+            "petugas": "Petugas", "kode_titik": "Kode_Titik", "lokasi": "Lokasi",
+            "h2s": "H2S", "o2": "O2", "co": "CO", "lel": "LEL", "so2": "SO2",
+            "noise": "Noise", "kesimpulan": "Kesimpulan",
+            "path_foto": "Path_Foto", "path_foto2": "Path_Foto2", "status": "Status",
+        }
+        df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
+        return df
+    except Exception:
+        if os.path.exists(FILE_DB):
+            return pd.read_excel(FILE_DB)
+        return pd.DataFrame()
+
 # ====================== CSS ======================
 st.markdown("""
 <style>
@@ -214,12 +245,6 @@ if "logged_in" not in st.session_state:
     st.session_state.nama_user = ""
     st.session_state.role = "petugas"
 
-# ====================== SUPABASE LOGIN ======================
-def get_supabase():
-    url = st.secrets["supabase"]["url"]
-    key = st.secrets["supabase"]["key"]
-    return create_client(url, key)
-
 def cek_login(username, password):
     try:
         sb = get_supabase()
@@ -342,16 +367,19 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
     
-    if os.path.exists(FILE_DB):
-        with open(FILE_DB, "rb") as f:
-            st.download_button(
-                label="Backup Database",
-                data=f,
-                file_name="backup_database_" + datetime.now().strftime("%Y%m%d") + ".xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-                key="btn_backup"
-            )
+    df_backup = load_monitoring_df()
+    if not df_backup.empty:
+        from io import BytesIO
+        bio = BytesIO()
+        df_backup.to_excel(bio, index=False)
+        st.download_button(
+            label="Backup Database",
+            data=bio.getvalue(),
+            file_name="backup_database_" + datetime.now().strftime("%Y%m%d") + ".xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="btn_backup"
+        )
     
     if st.button("Logout", use_container_width=True, key="btn_logout"):
         for key in list(st.session_state.keys()):
@@ -383,7 +411,7 @@ if menu == "Dashboard":
         else:
             thn_dash = st.number_input("Tahun", 2024, 2030, datetime.now().year, key="thn_thn")
     
-    df_db = pd.read_excel(FILE_DB) if os.path.exists(FILE_DB) else pd.DataFrame()
+    df_db = load_monitoring_df()
     df_alat = pd.read_excel(FILE_ALAT) if os.path.exists(FILE_ALAT) else pd.DataFrame()
     
     if os.path.exists(FILE_TITIK):
@@ -399,7 +427,7 @@ if menu == "Dashboard":
         df_db["Tanggal_dt"] = pd.to_datetime(df_db["Tanggal"], errors="coerce")
         if mode_periode == "Harian":
             tgl_str_harian = tgl_dash.strftime("%Y-%m-%d")
-            df_filter = df_db[df_db["Tanggal"] == tgl_str_harian].copy()
+            df_filter = df_db[df_db["Tanggal"].astype(str) == tgl_str_harian].copy()
             label_periode = tgl_dash.strftime("%d %B %Y")
         elif mode_periode == "Bulanan":
             bulan_map = {
@@ -507,8 +535,8 @@ if menu == "Dashboard":
     pct_aman = (jml_aman / total_data * 100) if total_data > 0 else 0
     pct_waspada = (jml_waspada / total_data * 100) if total_data > 0 else 0
     pct_bahaya = (jml_bahaya / total_data * 100) if total_data > 0 else 0
-    jml_h2s = len(df_filter[df_filter["H2S"] > 0]) if not df_filter.empty and "H2S" in df_filter.columns else 0
-    jml_so2 = len(df_filter[df_filter["SO2"] > 0]) if not df_filter.empty and "SO2" in df_filter.columns else 0
+    jml_h2s = len(df_filter[pd.to_numeric(df_filter["H2S"], errors="coerce").fillna(0) > 0]) if not df_filter.empty and "H2S" in df_filter.columns else 0
+    jml_so2 = len(df_filter[pd.to_numeric(df_filter["SO2"], errors="coerce").fillna(0) > 0]) if not df_filter.empty and "SO2" in df_filter.columns else 0
     titik_sudah = df_filter["Kode_Titik"].nunique() if not df_filter.empty and "Kode_Titik" in df_filter.columns else 0
     
     dari_file = (
