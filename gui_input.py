@@ -75,162 +75,156 @@ def load_titik():
                 "LongNS": str(row["Longitude_NS"]),
             }
         return titik
-    data = []
-    for kode, v in DEFAULT_TITIK.items():
-        data.append({
-            "Kode": kode,
-            "Lokasi": v["Lokasi"],
-            "Latitude": v["Lat"],
-            "Longitude": v["Long"],
-            "Latitude_NS": v["LatNS"],
-            "Longitude_NS": v["LongNS"],
-        })
-    pd.DataFrame(data).to_excel(FILE_TITIK, index=False)
-    return DEFAULT_TITIK
+    else:
+        data = []
+        for kode, v in DEFAULT_TITIK.items():
+            data.append({
+                "Kode": kode, "Lokasi": v["Lokasi"],
+                "Latitude": v["Lat"], "Longitude": v["Long"],
+                "Latitude_NS": v["LatNS"], "Longitude_NS": v["LongNS"],
+            })
+        pd.DataFrame(data).to_excel(FILE_TITIK, index=False)
+        return DEFAULT_TITIK
 
 
 def load_kesimpulan():
     if os.path.exists(FILE_KESIMPULAN):
         df = pd.read_excel(FILE_KESIMPULAN)
-        if "Kesimpulan" in df.columns:
-            return [str(x) for x in df["Kesimpulan"].tolist() if str(x).strip()]
-    pd.DataFrame({"Kesimpulan": DEFAULT_KESIMPULAN}).to_excel(FILE_KESIMPULAN, index=False)
-    return list(DEFAULT_KESIMPULAN)
+        return df["Kesimpulan"].tolist()
+    else:
+        pd.DataFrame({"Kesimpulan": DEFAULT_KESIMPULAN}).to_excel(FILE_KESIMPULAN, index=False)
+        return DEFAULT_KESIMPULAN
 
 
-def hitung_status(h2s, o2, co, lel, so2, noise):
-    """Aman / Waspada / Bahaya sesuai baku mutu."""
-    bahaya = False
-    waspada = False
+def simpan_foto(uploaded_file, tanggal, shift, kode_titik, nomor=1):
+    if uploaded_file is None:
+        return None
 
-    if h2s is not None and h2s > 1.0:
-        bahaya = True
-    elif h2s is not None and h2s > 0:
-        waspada = True
+    folder_path = Path(FOLDER_FOTO) / tanggal / shift.replace(" ", "_")
+    folder_path.mkdir(parents=True, exist_ok=True)
 
-    if so2 is not None and so2 > 0.057:
-        bahaya = True
-    elif so2 is not None and so2 > 0:
-        waspada = True
+    ekstensi = uploaded_file.name.split(".")[-1].lower()
+    if ekstensi not in ["jpg", "jpeg", "png"]:
+        ekstensi = "jpg"
 
-    if co is not None and co > 8.72:
-        bahaya = True
-    elif co is not None and co > 0:
-        waspada = True
+    nama_file = f"{kode_titik.replace(' ', '_')}_{nomor}.{ekstensi}"
+    path_lengkap = folder_path / nama_file
 
-    if o2 is not None and (o2 < 19.5 or o2 > 23.5):
-        bahaya = True
+    with open(path_lengkap, "wb") as f:
+        f.write(uploaded_file.getbuffer())
 
-    if noise is not None and noise > 55:
-        waspada = True
-
-    if bahaya:
-        return "Bahaya"
-    if waspada:
-        return "Waspada"
-    return "Aman"
+    return str(path_lengkap)
 
 
 def tampilkan_halaman_input(nama_user=""):
-    st.markdown("### 1. Input Data Pemantauan Udara Sesaat")
-    st.caption("Isi data pengukuran per titik. Noise opsional. Foto 1 wajib untuk laporan PDF, foto 2 opsional.")
+    st.markdown("### 1. Form Registrasi Data Udara Sesaat")
+    st.caption("Silahkan isi data di bawah ini. Field bertanda * wajib diisi. Noise bersifat opsional.")
 
     titik_data = load_titik()
+    list_kode = list(titik_data.keys())
     list_kesimpulan = load_kesimpulan()
 
-    tz = pytz.timezone("Asia/Jakarta")
-    now = datetime.now(tz)
+    col_kiri, _, col_kanan = st.columns([2, 0.2, 2])
 
-    col_a, col_b = st.columns(2)
-    with col_a:
-        tanggal_in = st.date_input("Tanggal *", now.date())
-        shift_in = st.selectbox("Shift *", ["Day Shift", "Night Shift"])
-        petugas_in = st.text_input("Petugas *", value=nama_user)
-        tp_in = st.selectbox("Titik Pantau *", list(titik_data.keys()))
-    with col_b:
-        waktu_in = st.text_input("Waktu *", value=now.strftime("%H:%M:%S"))
-        bulan_list = [
-            "Januari", "Februari", "Maret", "April", "Mei", "Juni",
-            "Juli", "Agustus", "September", "Oktober", "November", "Desember",
-        ]
-        bulan_in = st.selectbox("Bulan *", bulan_list, index=now.month - 1)
-        st.text_input("Lokasi (otomatis)", value=titik_data[tp_in]["Lokasi"], disabled=True)
+    with col_kiri:
+        st.markdown("#### Metadata Sesi")
 
-    st.markdown("---")
-    st.markdown("##### Hasil Pengukuran")
-
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        h2s = st.number_input("H2S (ppm) *", min_value=0.0, value=0.0, step=0.1, format="%.2f")
-        o2 = st.number_input("O2 (%) *", min_value=0.0, value=20.9, step=0.1, format="%.1f")
-    with c2:
-        co = st.number_input("CO (ppm) *", min_value=0.0, value=0.0, step=0.1, format="%.1f")
-        lel = st.number_input("LEL (%) *", min_value=0.0, value=0.0, step=0.1, format="%.1f")
-    with c3:
-        so2 = st.number_input("SO2 (ppm) *", min_value=0.0, value=0.0, step=0.01, format="%.3f")
-        noise_raw = st.number_input("Noise dB(A) (opsional)", min_value=0.0, value=0.0, step=0.1, format="%.1f")
-        noise = None if noise_raw == 0.0 else noise_raw
-
-    if o2 < 19.5 or o2 > 23.5:
-        st.warning("O2 di luar rentang normal 19,5% – 23,5%. Status akan Bahaya, data tetap bisa disimpan.")
-
-    st.markdown("---")
-    st.markdown("##### Dokumentasi Foto")
-    f1, f2 = st.columns(2)
-    with f1:
-        foto1 = st.file_uploader("Foto 1 (wajib untuk PDF) *", type=["jpg", "jpeg", "png"], key="foto1")
-    with f2:
-        foto2 = st.file_uploader("Foto 2 (opsional)", type=["jpg", "jpeg", "png"], key="foto2")
-
-    st.markdown("---")
-    kesimpulan_in = st.selectbox("Pilih Kesimpulan *", list_kesimpulan)
-
-    # Cek dobel (peringatan 2x klik)
-    tgl_str = tanggal_in.strftime("%Y-%m-%d")
-    key_dobel = f"dobel_{tgl_str}_{shift_in}_{tp_in}"
-
-    sudah_ada = False
-    try:
-        sb = get_supabase()
-        cek = (
-            sb.table("monitoring")
-            .select("id")
-            .eq("tanggal", tgl_str)
-            .eq("shift", shift_in)
-            .eq("kode_titik", tp_in)
-            .limit(1)
-            .execute()
-        )
-        sudah_ada = bool(cek.data)
-    except Exception:
-        if os.path.exists(FILE_DB):
-            try:
-                df_cek = pd.read_excel(FILE_DB)
-                sudah_ada = not df_cek[
-                    (df_cek["Tanggal"].astype(str) == tgl_str)
-                    & (df_cek["Shift"] == shift_in)
-                    & (df_cek["Kode_Titik"] == tp_in)
-                ].empty
-            except Exception:
-                pass
-
-    if sudah_ada:
-        st.warning(
-            f"Data **{tp_in}** ({shift_in}) tanggal **{tgl_str}** sudah pernah diinput. "
-            "Klik **Simpan** sekali lagi untuk konfirmasi input ulang."
+        tanggal_in = st.date_input(
+            "Tanggal Pengukuran *",
+            datetime.now(),
+            help="Tanggal pelaksanaan pemantauan",
         )
 
-    label_btn = "Konfirmasi Simpan Ulang" if (
-        sudah_ada and st.session_state.get(key_dobel)
-    ) else "Simpan Data"
+        bulan_in = tanggal_in.strftime("%B")
 
-    if st.button(label_btn, type="primary", use_container_width=True):
-        # Validasi
+        shift_in = st.selectbox(
+            "Shift Kerja *",
+            ["Day Shift", "Night Shift"],
+            help="Pilih shift sesuai waktu pengukuran",
+        )
+
+        tz_wib = pytz.timezone("Asia/Jakarta")
+        jam_sekarang = datetime.now(tz_wib).strftime("%H:%M")
+
+        waktu_in = st.text_input(
+            "Waktu Sampling *",
+            value=jam_sekarang,
+            help="Format: JJ:MM (contoh 10:35). Otomatis terisi jam WIB sekarang.",
+        )
+
+        petugas_in = st.text_input(
+            "Nama Petugas *",
+            value=nama_user,
+            help="Nama petugas yang melakukan pengukuran",
+        )
+
+        tp_in = st.selectbox(
+            "Kode Titik Pantau *",
+            list_kode,
+            help="Pilih titik pantau sesuai lokasi pengukuran",
+        )
+
+        info = titik_data[tp_in]
+        st.info(f"**Area:** {info['Lokasi']}\n\n**Koordinat:** Lat {info['Lat']} | Long {info['Long']}")
+
+    with col_kanan:
+        st.markdown("#### Hasil Deteksi Alat")
+        st.caption("Baku mutu: H2S=1 | SO2=0,057 | CO=8,72 | O2=19,5–23,5 | Noise=55")
+
+        h2s = st.number_input("Gas H2S (ppm) *", min_value=0.0, value=None, step=0.1, format="%.2f", placeholder="Contoh: 0.00", help="Wajib diisi. Nilai 0 jika tidak terdeteksi.")
+        o2 = st.number_input("Gas O2 (%) *", min_value=0.0, value=None, step=0.1, format="%.1f", placeholder="19.5 – 23.5", help="Rentang normal: 19.5 – 23.5 %. Tetap bisa disimpan jika di luar range.")
+        co = st.number_input("Gas CO (ppm) *", min_value=0.0, value=None, step=0.1, format="%.1f", placeholder="Contoh: 0.0", help="Wajib diisi.")
+        lel = st.number_input("Gas LEL (%) *", min_value=0.0, value=None, step=0.1, format="%.1f", placeholder="Contoh: 0.0", help="Wajib diisi.")
+        so2 = st.number_input("Gas SO2 (ppm) *", min_value=0.0, value=None, step=0.001, format="%.3f", placeholder="Contoh: 0.00", help="Wajib diisi. Nilai 0 jika tidak terdeteksi.")
+        noise = st.number_input("Noise Level / Kebisingan (dB(A))", min_value=0.0, value=None, step=0.1, format="%.1f", placeholder="Opsional", help="Tidak wajib diisi.")
+
+    st.markdown("---")
+    st.markdown("#### Dokumentasi Foto")
+    st.caption("Upload 1–2 foto alat di lokasi titik pantau. Foto 1 wajib. Foto 2 opsional. Kedua foto akan muncul berdampingan di laporan PDF.")
+
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        foto1 = st.file_uploader("Foto 1 * (Wajib)", type=["jpg", "jpeg", "png"], key="foto1")
+        if foto1:
+            st.image(foto1, caption="Preview Foto 1", width=250)
+    with col_f2:
+        foto2 = st.file_uploader("Foto 2 (Opsional)", type=["jpg", "jpeg", "png"], key="foto2")
+        if foto2:
+            st.image(foto2, caption="Preview Foto 2", width=250)
+
+    st.markdown("---")
+
+    st.markdown("#### Kesimpulan")
+    kesimpulan_in = st.selectbox(
+        "Pilih Kesimpulan *",
+        options=list_kesimpulan,
+        help="Wajib dipilih. Satu hari hanya 1 kesimpulan yang dipakai (yang terakhir disimpan).",
+    )
+
+    st.markdown("---")
+
+    if "konfirmasi_dobel" not in st.session_state:
+        st.session_state.konfirmasi_dobel = False
+
+    col_btn1, col_btn2 = st.columns([3, 1])
+
+    with col_btn1:
+        label_tombol = "Konfirmasi & Simpan Data" if st.session_state.konfirmasi_dobel else "Simpan Data"
+        klik = st.button(label_tombol, type="primary", use_container_width=True)
+
+    with col_btn2:
+        if st.session_state.konfirmasi_dobel:
+            if st.button("Batal", use_container_width=True):
+                st.session_state.konfirmasi_dobel = False
+                st.rerun()
+
+    if klik:
         kesalahan = []
+
         if not petugas_in.strip():
-            kesalahan.append("Petugas")
-        if not str(waktu_in).strip():
-            kesalahan.append("Waktu")
+            kesalahan.append("Nama Petugas")
+        if not waktu_in.strip():
+            kesalahan.append("Waktu Sampling")
         if h2s is None:
             kesalahan.append("H2S")
         if o2 is None:
@@ -243,37 +237,100 @@ def tampilkan_halaman_input(nama_user=""):
             kesalahan.append("SO2")
         if not kesimpulan_in:
             kesalahan.append("Kesimpulan")
+        if foto1 is None:
+            kesalahan.append("Foto 1 (wajib)")
 
         if kesalahan:
-            st.error("Masih ada data wajib: **" + ", ".join(kesalahan) + "**")
+            st.error(f"Masih ada data yang belum valid: **{', '.join(kesalahan)}**")
+            st.session_state.konfirmasi_dobel = False
             return
 
-        # Dobel: butuh 2x klik
-        if sudah_ada and not st.session_state.get(key_dobel):
-            st.session_state[key_dobel] = True
-            st.warning("Klik **Konfirmasi Simpan Ulang** sekali lagi untuk menyimpan.")
-            st.rerun()
+        tgl_str = tanggal_in.strftime("%Y-%m-%d")
 
-        # Simpan foto lokal (jika ada)
-        path_foto1 = ""
-        path_foto2 = ""
-        shift_folder = "Day_Shift" if shift_in == "Day Shift" else "Night_Shift"
-        folder = os.path.join(FOLDER_FOTO, tgl_str, shift_folder)
-        Path(folder).mkdir(parents=True, exist_ok=True)
-        base = tp_in.replace(" ", "_")
+        # Cek dobel: Supabase dulu, fallback Excel
+        sudah_ada = False
+        try:
+            sb = get_supabase()
+            cek = (
+                sb.table("monitoring")
+                .select("id")
+                .eq("tanggal", tgl_str)
+                .eq("shift", shift_in)
+                .eq("kode_titik", str(tp_in))
+                .limit(1)
+                .execute()
+            )
+            sudah_ada = bool(cek.data)
+        except Exception:
+            if os.path.exists(FILE_DB):
+                df_cek = pd.read_excel(FILE_DB)
+                if not df_cek.empty and all(c in df_cek.columns for c in ["Tanggal", "Shift", "Kode_Titik"]):
+                    match_dobel = df_cek[
+                        (df_cek["Tanggal"].astype(str) == tgl_str)
+                        & (df_cek["Shift"] == shift_in)
+                        & (df_cek["Kode_Titik"].astype(str) == str(tp_in))
+                    ]
+                    if len(match_dobel) > 0:
+                        sudah_ada = True
 
-        if foto1 is not None:
-            ext = foto1.name.split(".")[-1].lower()
-            path_foto1 = os.path.join(folder, f"{base}_1.{ext}")
-            with open(path_foto1, "wb") as f:
-                f.write(foto1.getbuffer())
-        if foto2 is not None:
-            ext = foto2.name.split(".")[-1].lower()
-            path_foto2 = os.path.join(folder, f"{base}_2.{ext}")
-            with open(path_foto2, "wb") as f:
-                f.write(foto2.getbuffer())
+        if sudah_ada and not st.session_state.konfirmasi_dobel:
+            st.session_state.konfirmasi_dobel = True
+            st.error(
+                f"⚠️ Data untuk **{tp_in}** ({shift_in}, {tgl_str}) sudah pernah diinput. "
+                f"Yakin ingin menginputnya kembali?"
+            )
+            st.warning("Klik tombol **Konfirmasi & Simpan Data** sekali lagi untuk menyimpan, atau klik **Batal**.")
+            return
 
-        status_gas = hitung_status(h2s, o2, co, lel, so2, noise)
+        # ===== STATUS BAKU MUTU =====
+        ada_bahaya = False
+        ada_waspada = False
+        detail_status = []
+
+        if h2s > 0:
+            if h2s > 1.0:
+                ada_bahaya = True
+                detail_status.append(f"Terdeteksi H2S {h2s} ppm (> baku mutu 1 ppm)")
+            else:
+                ada_waspada = True
+                detail_status.append(f"Terdeteksi H2S {h2s} ppm (≤ baku mutu 1 ppm)")
+
+        if so2 > 0:
+            if so2 > 0.057:
+                ada_bahaya = True
+                detail_status.append(f"Terdeteksi SO2 {so2} ppm (> baku mutu 0,057 ppm)")
+            else:
+                ada_waspada = True
+                detail_status.append(f"Terdeteksi SO2 {so2} ppm (≤ baku mutu 0,057 ppm)")
+
+        if co > 0:
+            if co > 8.72:
+                ada_bahaya = True
+                detail_status.append(f"Terdeteksi CO {co} ppm (> baku mutu 8,72 ppm)")
+            else:
+                ada_waspada = True
+                detail_status.append(f"Terdeteksi CO {co} ppm (≤ baku mutu 8,72 ppm)")
+
+        if o2 < 19.5:
+            ada_bahaya = True
+            detail_status.append(f"O2 tidak normal: {o2}% (< 19,5%)")
+        elif o2 > 23.5:
+            ada_bahaya = True
+            detail_status.append(f"O2 tidak normal: {o2}% (> 23,5%)")
+
+        if noise is not None and noise > 55:
+            ada_waspada = True
+            detail_status.append(f"Kebisingan {noise} dB (melebihi baku mutu 55 dB)")
+
+        if ada_bahaya:
+            status_gas = "Bahaya"
+        elif ada_waspada:
+            status_gas = "Waspada"
+        else:
+            status_gas = "Aman"
+
+        path_foto1 = simpan_foto(foto1, tgl_str, shift_in, tp_in, nomor=1)
+        path_foto2 = simpan_foto(foto2, tgl_str, shift_in, tp_in, nomor=2) if foto2 is not None else ""
 
         data_baru = {
             "Tanggal": [tgl_str],
@@ -290,8 +347,8 @@ def tampilkan_halaman_input(nama_user=""):
             "SO2": [so2],
             "Noise": [noise if noise is not None else None],
             "Kesimpulan": [kesimpulan_in],
-            "Path_Foto": [path_foto1],
-            "Path_Foto2": [path_foto2],
+            "Path_Foto": [path_foto1 if path_foto1 else ""],
+            "Path_Foto2": [path_foto2 if path_foto2 else ""],
             "Status": [status_gas],
         }
 
@@ -301,14 +358,17 @@ def tampilkan_halaman_input(nama_user=""):
             st.error("Gagal simpan ke Supabase: " + msg_sb)
             return
 
-        # Cadangan Excel lokal
+        # Cadangan Excel lokal (di Cloud boleh gagal)
         try:
             df_baru = pd.DataFrame(data_baru)
             if os.path.exists(FILE_DB):
                 df_lama = pd.read_excel(FILE_DB)
-                for col in ["Kesimpulan", "Path_Foto", "Path_Foto2"]:
-                    if col not in df_lama.columns:
-                        df_lama[col] = ""
+                if "Kesimpulan" not in df_lama.columns:
+                    df_lama["Kesimpulan"] = ""
+                if "Path_Foto" not in df_lama.columns:
+                    df_lama["Path_Foto"] = ""
+                if "Path_Foto2" not in df_lama.columns:
+                    df_lama["Path_Foto2"] = ""
                 df_total = pd.concat([df_lama, df_baru], ignore_index=True)
             else:
                 df_total = df_baru
@@ -316,8 +376,14 @@ def tampilkan_halaman_input(nama_user=""):
         except Exception:
             pass
 
-        if key_dobel in st.session_state:
-            del st.session_state[key_dobel]
+        st.session_state.konfirmasi_dobel = False
 
-        st.success("✅ Data berhasil disimpan! (" + msg_sb + ") Status: **" + status_gas + "**")
+        if status_gas == "Bahaya":
+            st.error("⚠️ STATUS **BAHAYA**: " + " | ".join(detail_status))
+        elif status_gas == "Waspada":
+            st.warning("⚡ STATUS **WASPADA**: " + " | ".join(detail_status))
+        else:
+            st.success("✅ STATUS **AMAN** — semua parameter dalam batas normal")
+
+        st.success("✅ Data berhasil disimpan! (" + msg_sb + ")")
         st.balloons()
