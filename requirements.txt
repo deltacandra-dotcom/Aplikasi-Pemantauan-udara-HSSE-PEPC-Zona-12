@@ -1,6 +1,6 @@
-pytz
-reportlab
-openpyxl
-pandas
 streamlit
+pandas
+openpyxl
+reportlab
+pytz
 supabase
