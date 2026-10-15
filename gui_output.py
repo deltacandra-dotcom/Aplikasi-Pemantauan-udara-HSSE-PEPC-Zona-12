@@ -150,9 +150,28 @@ def _ensure_status_str(df):
 
 
 def load_status_laporan():
-    if os.path.exists(FILE_STATUS):
-        return _ensure_status_str(pd.read_excel(FILE_STATUS))
-    return pd.DataFrame(columns=STATUS_TEXT_COLS)
+    try:
+        sb = get_supabase()
+        res = sb.table("status_laporan").select("*").order("id", desc=False).execute()
+        rows = res.data or []
+        if not rows:
+            return pd.DataFrame(columns=STATUS_TEXT_COLS)
+        df = pd.DataFrame(rows)
+        rename = {
+            "tanggal": "Tanggal", "status": "Status",
+            "diajukan_oleh": "Diajukan_Oleh", "waktu_ajukan": "Waktu_Ajukan",
+            "diperiksa_oleh": "Diperiksa_Oleh", "waktu_diperiksa": "Waktu_Diperiksa",
+            "disetujui_oleh": "Disetujui_Oleh", "waktu_disetujui": "Waktu_Disetujui",
+            "ditolak_oleh": "Ditolak_Oleh", "waktu_tolak": "Waktu_Tolak",
+            "catatan_tolak": "Catatan_Tolak",
+            "email_diperiksa": "Email_Diperiksa", "email_disetujui": "Email_Disetujui",
+        }
+        df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
+        return _ensure_status_str(df)
+    except Exception:
+        if os.path.exists(FILE_STATUS):
+            return _ensure_status_str(pd.read_excel(FILE_STATUS))
+        return pd.DataFrame(columns=STATUS_TEXT_COLS)
 
 
 def get_status_tanggal(tgl_str):
@@ -166,24 +185,30 @@ def get_status_tanggal(tgl_str):
 
 
 def upsert_status(tgl_str, **kwargs):
-    df = load_status_laporan()
     tgl_str = str(tgl_str)
-    df = _ensure_status_str(df)
-    if not df.empty and (df["Tanggal"].astype(str) == tgl_str).any():
-        idx = df.index[df["Tanggal"].astype(str) == tgl_str][-1]
-        for k, v in kwargs.items():
-            if k not in df.columns:
-                df[k] = ""
-            df.at[idx, k] = "" if v is None else str(v)
-    else:
-        row = {c: "" for c in STATUS_TEXT_COLS}
-        row["Tanggal"] = tgl_str
-        row["Status"] = str(kwargs.get("Status", "Draft"))
-        for k, v in kwargs.items():
-            row[k] = "" if v is None else str(v)
-        df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
-    df = _ensure_status_str(df)
-    df.to_excel(FILE_STATUS, index=False)
+    payload = {"tanggal": tgl_str}
+    map_keys = {
+        "Status": "status", "Diajukan_Oleh": "diajukan_oleh", "Waktu_Ajukan": "waktu_ajukan",
+        "Diperiksa_Oleh": "diperiksa_oleh", "Waktu_Diperiksa": "waktu_diperiksa",
+        "Disetujui_Oleh": "disetujui_oleh", "Waktu_Disetujui": "waktu_disetujui",
+        "Ditolak_Oleh": "ditolak_oleh", "Waktu_Tolak": "waktu_tolak",
+        "Catatan_Tolak": "catatan_tolak",
+        "Email_Diperiksa": "email_diperiksa", "Email_Disetujui": "email_disetujui",
+    }
+    for k, v in kwargs.items():
+        col = map_keys.get(k, k.lower())
+        payload[col] = "" if v is None else str(v)
+    try:
+        sb = get_supabase()
+        cek = sb.table("status_laporan").select("id").eq("tanggal", tgl_str).limit(1).execute()
+        if cek.data:
+            sb.table("status_laporan").update(payload).eq("id", cek.data[0]["id"]).execute()
+        else:
+            if "status" not in payload:
+                payload["status"] = "Draft"
+            sb.table("status_laporan").insert(payload).execute()
+    except Exception as e:
+        st.warning("Gagal simpan status Supabase: " + str(e))
 
 
 def load_email_list(file_path, default_list=None):
@@ -895,7 +920,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                     return ["background-color:#FFF8E1"] * len(row)
                 return ["background-color:#E8F5E9"] * len(row)
 
-            tampil = df_hasil.drop(columns=["id"], errors="ignore")
+            tampil = df_hasil.drop(columns=["id", "created_at"], errors="ignore")
             try:
                 st.dataframe(tampil.style.apply(style_row, axis=1), use_container_width=True)
             except Exception:
@@ -922,8 +947,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                         st.rerun()
                     except Exception as e:
                         st.error("Gagal hapus: " + str(e))
-            else:
-                st.caption("Hapus lewat Supabase Table Editor jika kolom id tidak ada.")
         else:
             st.info("Belum ada data pada filter ini.")
 
@@ -1167,13 +1190,38 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                 c3, c4 = st.columns(2)
                 with c3:
                     if st.button("Setujui Final", type="primary", key="ok_setujui"):
+                        row_info = pending2[pending2["Tanggal"].astype(str) == str(tgl_pilih2)]
+                        diajukan = ""
+                        if len(row_info) > 0:
+                            diajukan = str(row_info.iloc[-1].get("Diajukan_Oleh", "") or "")
                         upsert_status(
                             str(tgl_pilih2), Status="Final",
                             Disetujui_Oleh=str(nama_user),
                             Waktu_Disetujui=datetime.now().strftime("%Y-%m-%d %H:%M"),
                             Catatan_Tolak="",
                         )
-                        st.success("Final. Petugas bisa unduh PDF.")
+                        # Email notifikasi ke akun pengirim aplikasi (petugas)
+                        smtp_em, _ = load_smtp_config()
+                        tujuan_petugas = smtp_em if smtp_em and "@" in smtp_em else "pengirimaplikasi@gmail.com"
+                        body_final = (
+                            "Yth. Petugas / Tim Monitoring,\n\n"
+                            "Laporan pemantauan udara sesaat tanggal " + str(tgl_pilih2) + "\n"
+                            "telah DISETUJUI FINAL oleh Superintendent HSSE (" + str(nama_user) + ").\n\n"
+                            "Diajukan oleh: " + (diajukan if diajukan else "-") + "\n"
+                            "Status: Final\n\n"
+                            "Petugas dapat mengunduh PDF di menu Download Laporan.\n\n"
+                            "PEPC Zona 12 — Sistem Pemantauan Udara Sesaat"
+                        )
+                        ok_mail, msg_mail = kirim_email(
+                            tujuan_petugas,
+                            "[PEPC] Laporan " + str(tgl_pilih2) + " SUDAH FINAL — siap unduh PDF",
+                            body_final,
+                        )
+                        if ok_mail:
+                            st.success("Final. Notifikasi email: " + msg_mail)
+                        else:
+                            st.success("Status Final tersimpan.")
+                            st.warning("Email notifikasi: " + msg_mail)
                         st.rerun()
                 with c4:
                     if st.button("Tolak", key="tolak_setujui"):
@@ -1495,7 +1543,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
 
         with tab7:
             st.markdown("#### Kelola Notifikasi Email")
-            st.caption("SMTP: Secrets Cloud atau smtp_config.xlsx lokal.")
             try:
                 _ = st.secrets["smtp"]["email"]
                 st.info("SMTP aktif dari Streamlit Secrets.")
@@ -1547,13 +1594,13 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
     # ===================== KELOLA USER =====================
     elif pilihan_menu == "6. Kelola User":
         st.markdown("### 6. Kelola User")
-        st.info("Login memakai tabel Supabase **users**. Edit di Table Editor Supabase, atau di bawah (jika RLS mengizinkan).")
+        st.info("Login memakai tabel Supabase **users**.")
         try:
             res = get_supabase().table("users").select("id, username, nama, role").execute()
             df_u = pd.DataFrame(res.data) if res.data else pd.DataFrame()
             if not df_u.empty:
                 st.dataframe(df_u, use_container_width=True, hide_index=True)
             else:
-                st.info("Belum ada user di Supabase.")
+                st.info("Belum ada user.")
         except Exception as e:
             st.error(str(e))
