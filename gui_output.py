@@ -631,7 +631,7 @@ def ambil_foto(df_shift, kode, tgl_str, shift_folder):
                 path2 = candidate
                 break
     return path1, path2
-    def buat_pdf_laporan(df_db, tgl_target):
+def buat_pdf_laporan(df_db, tgl_target):
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=A4,
