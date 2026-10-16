@@ -133,22 +133,38 @@ def load_kesimpulan():
 
 
 def simpan_foto(uploaded_file, tanggal, shift, kode_titik, nomor=1):
+    """Upload ke Supabase Storage; fallback lokal jika gagal. Return path storage atau lokal."""
     if uploaded_file is None:
         return None
-
-    folder_path = Path(FOLDER_FOTO) / tanggal / shift.replace(" ", "_")
-    folder_path.mkdir(parents=True, exist_ok=True)
 
     ekstensi = uploaded_file.name.split(".")[-1].lower()
     if ekstensi not in ["jpg", "jpeg", "png"]:
         ekstensi = "jpg"
 
+    shift_folder = shift.replace(" ", "_")
     nama_file = f"{kode_titik.replace(' ', '_')}_{nomor}.{ekstensi}"
-    path_lengkap = folder_path / nama_file
+    storage_path = f"{tanggal}/{shift_folder}/{nama_file}"
 
+    try:
+        sb = get_supabase()
+        file_bytes = uploaded_file.getvalue()
+        sb.storage.from_("foto-monitoring").upload(
+            path=storage_path,
+            file=file_bytes,
+            file_options={
+                "content-type": uploaded_file.type or "image/jpeg",
+                "upsert": "true",
+            },
+        )
+        return storage_path
+    except Exception as e:
+        st.warning("Upload Storage gagal, simpan lokal: " + str(e))
+
+    folder_path = Path(FOLDER_FOTO) / tanggal / shift_folder
+    folder_path.mkdir(parents=True, exist_ok=True)
+    path_lengkap = folder_path / nama_file
     with open(path_lengkap, "wb") as f:
         f.write(uploaded_file.getbuffer())
-
     return str(path_lengkap)
 
 
