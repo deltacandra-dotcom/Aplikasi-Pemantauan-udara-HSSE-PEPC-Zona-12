@@ -89,6 +89,26 @@ def load_monitoring_df():
 
 
 def load_titik():
+    try:
+        sb = get_supabase()
+        res = sb.table("titik_pantau").select("*").order("id", desc=False).execute()
+        if res.data:
+            titik = {}
+            for row in res.data:
+                kode = str(row.get("kode", ""))
+                if not kode:
+                    continue
+                titik[kode] = {
+                    "Lokasi": str(row.get("lokasi", "") or ""),
+                    "Lat": str(row.get("latitude", "") or ""),
+                    "Long": str(row.get("longitude", "") or ""),
+                    "LatNS": str(row.get("latitude_ns", "") or row.get("latitude", "") or ""),
+                    "LongNS": str(row.get("longitude_ns", "") or row.get("longitude", "") or ""),
+                }
+            if titik:
+                return titik
+    except Exception:
+        pass
     if os.path.exists(FILE_TITIK):
         df = pd.read_excel(FILE_TITIK)
         titik = {}
@@ -101,22 +121,58 @@ def load_titik():
                 "LongNS": str(row["Longitude_NS"]),
             }
         return titik
-    data = []
-    for kode, v in DEFAULT_TITIK.items():
-        data.append({
-            "Kode": kode, "Lokasi": v["Lokasi"],
-            "Latitude": v["Lat"], "Longitude": v["Long"],
-            "Latitude_NS": v["LatNS"], "Longitude_NS": v["LongNS"],
-        })
-    pd.DataFrame(data).to_excel(FILE_TITIK, index=False)
     return DEFAULT_TITIK
 
 
+def load_titik_df():
+    """DataFrame untuk menu Kelola Titik."""
+    try:
+        sb = get_supabase()
+        res = sb.table("titik_pantau").select("*").order("id", desc=False).execute()
+        if res.data:
+            df = pd.DataFrame(res.data)
+            rename = {
+                "kode": "Kode", "lokasi": "Lokasi", "latitude": "Latitude",
+                "longitude": "Longitude", "latitude_ns": "Latitude_NS", "longitude_ns": "Longitude_NS",
+            }
+            df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
+            cols = [c for c in ["id", "Kode", "Lokasi", "Latitude", "Longitude", "Latitude_NS", "Longitude_NS"] if c in df.columns]
+            return df[cols]
+    except Exception:
+        pass
+    if os.path.exists(FILE_TITIK):
+        return pd.read_excel(FILE_TITIK)
+    data = [{"Kode": k, "Lokasi": v["Lokasi"], "Latitude": v["Lat"], "Longitude": v["Long"],
+             "Latitude_NS": v["LatNS"], "Longitude_NS": v["LongNS"]} for k, v in DEFAULT_TITIK.items()]
+    return pd.DataFrame(data)
+
+
 def load_daftar_alat():
+    try:
+        sb = get_supabase()
+        res = sb.table("daftar_alat").select("nama_alat").order("id", desc=False).execute()
+        if res.data:
+            return [str(r["nama_alat"]) for r in res.data if r.get("nama_alat")]
+    except Exception:
+        pass
     if os.path.exists(FILE_MASTER_ALAT):
         return pd.read_excel(FILE_MASTER_ALAT)["Nama_Alat"].tolist()
-    pd.DataFrame({"Nama_Alat": DEFAULT_ALAT}).to_excel(FILE_MASTER_ALAT, index=False)
-    return DEFAULT_ALAT
+    return list(DEFAULT_ALAT)
+
+
+def load_kesimpulan_list():
+    try:
+        sb = get_supabase()
+        res = sb.table("kesimpulan").select("teks").order("id", desc=False).execute()
+        if res.data:
+            return [str(r["teks"]) for r in res.data if r.get("teks")]
+    except Exception:
+        pass
+    if os.path.exists(FILE_KESIMPULAN):
+        df = pd.read_excel(FILE_KESIMPULAN)
+        if "Kesimpulan" in df.columns:
+            return df["Kesimpulan"].tolist()
+    return list(DEFAULT_KESIMPULAN)
 
 
 def load_pengaturan_laporan():
@@ -126,6 +182,19 @@ def load_pengaturan_laporan():
         "Nama_Disetujui": "Ahmad Afifuddin",
         "Jabatan_Disetujui": "Superintendent Field HSSE",
     }
+    try:
+        sb = get_supabase()
+        res = sb.table("pengaturan_laporan").select("*").order("id", desc=False).limit(1).execute()
+        if res.data:
+            r = res.data[0]
+            return {
+                "Nama_Diperiksa": str(r.get("nama_diperiksa") or default["Nama_Diperiksa"]),
+                "Jabatan_Diperiksa": str(r.get("jabatan_diperiksa") or default["Jabatan_Diperiksa"]),
+                "Nama_Disetujui": str(r.get("nama_disetujui") or default["Nama_Disetujui"]),
+                "Jabatan_Disetujui": str(r.get("jabatan_disetujui") or default["Jabatan_Disetujui"]),
+            }
+    except Exception:
+        pass
     if os.path.exists(FILE_PENGATURAN):
         try:
             df = pd.read_excel(FILE_PENGATURAN)
@@ -212,15 +281,21 @@ def upsert_status(tgl_str, **kwargs):
 
 
 def load_email_list(file_path, default_list=None):
+    """file_path: FILE_EMAIL_DIPERIKSA atau FILE_EMAIL_DISETUJUI → baca tabel Supabase dulu."""
     if default_list is None:
         default_list = []
+    table = "email_diperiksa" if "diperiksa" in file_path else "email_disetujui"
+    try:
+        sb = get_supabase()
+        res = sb.table(table).select("email").order("id", desc=False).execute()
+        if res.data:
+            return [str(r["email"]).strip() for r in res.data if r.get("email") and str(r["email"]).strip()]
+    except Exception:
+        pass
     if os.path.exists(file_path):
         df = pd.read_excel(file_path)
-        if "Email" not in df.columns:
-            return list(default_list)
-        return [str(x).strip() for x in df["Email"].tolist() if str(x).strip() and str(x).lower() != "nan"]
-    if default_list:
-        pd.DataFrame({"Email": default_list}).to_excel(file_path, index=False)
+        if "Email" in df.columns:
+            return [str(x).strip() for x in df["Email"].tolist() if str(x).strip() and str(x).lower() != "nan"]
     return list(default_list)
 
 
@@ -246,10 +321,6 @@ def load_smtp_config():
             return em, pw
         except Exception:
             return default_email, default_pass
-    try:
-        pd.DataFrame([{"Email": default_email, "Password": default_pass}]).to_excel(FILE_SMTP, index=False)
-    except Exception:
-        pass
     return default_email, default_pass
 
 
@@ -560,7 +631,7 @@ def ambil_foto(df_shift, kode, tgl_str, shift_folder):
                 path2 = candidate
                 break
     return path1, path2
-def buat_pdf_laporan(df_db, tgl_target):
+    def buat_pdf_laporan(df_db, tgl_target):
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=A4,
@@ -877,14 +948,13 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
     titik_data = load_titik()
     daftar_alat = load_daftar_alat()
 
-    # ===================== REVIEW DATA =====================
+    # ===================== REVIEW =====================
     if pilihan_menu == "2. Review Data":
         st.markdown("### 2. Portal Pencarian & Review Data")
         df_db = load_monitoring_df()
         if df_db.empty:
             st.info("Belum ada data pemantauan.")
             return
-
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             cari_tgl = st.date_input("Tanggal", datetime.now())
@@ -894,7 +964,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
             cari_tp = st.selectbox("Titik", ["Semua"] + list(titik_data.keys()))
         with c4:
             cari_status = st.selectbox("Status", ["Semua", "Aman", "Waspada", "Bahaya"])
-
         df_hasil = df_db[df_db["Tanggal"].astype(str) == cari_tgl.strftime("%Y-%m-%d")].copy()
         if cari_shift != "Semua" and "Shift" in df_hasil.columns:
             df_hasil = df_hasil[df_hasil["Shift"] == cari_shift]
@@ -902,7 +971,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
             df_hasil = df_hasil[df_hasil["Kode_Titik"].astype(str) == cari_tp]
         if cari_status != "Semua" and "Status" in df_hasil.columns:
             df_hasil = df_hasil[df_hasil["Status"] == cari_status]
-
         if not df_hasil.empty:
             if "Status" in df_hasil.columns:
                 if "Bahaya" in df_hasil["Status"].values:
@@ -925,7 +993,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                 st.dataframe(tampil.style.apply(style_row, axis=1), use_container_width=True)
             except Exception:
                 st.dataframe(tampil, use_container_width=True)
-
             st.markdown("---")
             if "id" in df_hasil.columns and not df_hasil["id"].isna().all():
                 opsi = df_hasil.index.tolist()
@@ -955,19 +1022,16 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
         st.markdown("### 3. Panel Cetak & Download")
         df_db = load_monitoring_df()
         tab1, tab2, tab3 = st.tabs(["Excel Harian", "Excel Bulanan", "PDF Laporan Resmi"])
-
         with tab1:
             st.caption("Unduh Excel Harian:")
             tgl = st.date_input("Pilih Tanggal", datetime.now(), key="tgl_harian")
             if st.button("Generate Excel Harian", type="primary"):
                 data = buat_excel_harian_resmi(df_db, tgl)
                 st.download_button(
-                    "Download",
-                    data=data,
+                    "Download", data=data,
                     file_name="Laporan_Harian_" + tgl.strftime("%Y%m%d") + ".xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 )
-
         with tab2:
             st.caption("Unduh Excel Bulanan:")
             c1, c2 = st.columns(2)
@@ -983,12 +1047,10 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
             if st.button("Generate Excel Bulanan", type="primary"):
                 data = buat_excel_bulanan(df_db, bln, thn)
                 st.download_button(
-                    "Download",
-                    data=data,
+                    "Download", data=data,
                     file_name="Laporan_Bulanan_" + bln + "_" + str(thn) + ".xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 )
-
         with tab3:
             st.caption("PDF: petugas setelah Final. Officer/Superintendent bisa preview.")
             tgl_pdf = st.date_input("Pilih Tanggal untuk PDF", datetime.now(), key="tgl_pdf")
@@ -1003,14 +1065,12 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                 + ";font-weight:700;'>" + status_now + "</span>",
                 unsafe_allow_html=True,
             )
-
             df_st = load_status_laporan()
             row_st = df_st[df_st["Tanggal"].astype(str) == tgl_pdf_str] if not df_st.empty else pd.DataFrame()
             if len(row_st) > 0 and status_now == "Ditolak":
                 cat = str(row_st.iloc[-1].get("Catatan_Tolak", "") or "")
                 if cat.strip():
                     st.error("Alasan ditolak: " + cat)
-
             df_hari_pdf = df_db[df_db["Tanggal"].astype(str) == tgl_pdf_str].copy() if not df_db.empty else pd.DataFrame()
             list_tp = list(titik_data.keys())
             total_tp = len(list_tp) if list_tp else 6
@@ -1058,7 +1118,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                 + ic(ada_peta) + " Peta\n"
                 + ic(ada_ttd) + " Tanda tangan"
             )
-
             if role in ["petugas", "admin"] and status_now in ["Draft", "Ditolak"]:
                 list_email_dip = load_email_list(FILE_EMAIL_DIPERIKSA, ["dltdelta84@gmail.com"])
                 email_tujuan = st.selectbox(
@@ -1071,8 +1130,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                         st.error("Belum ada email Diperiksa.")
                     else:
                         upsert_status(
-                            tgl_pdf_str,
-                            Status="Menunggu Diperiksa",
+                            tgl_pdf_str, Status="Menunggu Diperiksa",
                             Diajukan_Oleh=str(nama_user),
                             Waktu_Ajukan=datetime.now().strftime("%Y-%m-%d %H:%M"),
                             Email_Diperiksa=str(email_tujuan),
@@ -1081,20 +1139,15 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                         body = (
                             "Yth. Environment Officer,\n\nLaporan " + tgl_pdf_str
                             + " diajukan oleh " + str(nama_user)
-                            + ".\nStatus: Menunggu Diperiksa.\n\nLogin - Persetujuan Laporan.\n\nPEPC Zona 12"
+                            + ".\nStatus: Menunggu Diperiksa.\n\nPEPC Zona 12"
                         )
-                        ok, msg = kirim_email(
-                            email_tujuan,
-                            "[PEPC] Laporan " + tgl_pdf_str + " menunggu diperiksa",
-                            body,
-                        )
+                        ok, msg = kirim_email(email_tujuan, "[PEPC] Laporan " + tgl_pdf_str + " menunggu diperiksa", body)
                         st.success("Diajukan. " + msg) if ok else st.warning("Diajukan. Email: " + msg)
                         st.rerun()
             elif role in ["petugas", "admin"] and status_now == "Menunggu Diperiksa":
                 st.info("Menunggu Environment Officer.")
             elif role in ["petugas", "admin"] and status_now == "Menunggu Disetujui":
                 st.info("Menunggu Superintendent HSSE.")
-
             boleh_pdf = status_now == "Final" or role in ["diperiksa", "disetujui", "admin"]
             if boleh_pdf:
                 label = "Generate & Download PDF" if status_now == "Final" else "Preview PDF (review)"
@@ -1103,8 +1156,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                         try:
                             pdf_data = buat_pdf_laporan(df_db, tgl_pdf)
                             st.download_button(
-                                "Download PDF",
-                                data=pdf_data,
+                                "Download PDF", data=pdf_data,
                                 file_name="Laporan_Pemantauan_Udara_" + tgl_pdf.strftime("%Y%m%d") + ".pdf",
                                 mime="application/pdf",
                             )
@@ -1121,7 +1173,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
             st.warning("Akses ditolak.")
             return
         df_st = load_status_laporan()
-
         if role in ["diperiksa", "admin"]:
             st.markdown("#### Menunggu Diperiksa")
             pending1 = df_st[df_st["Status"] == "Menunggu Diperiksa"] if not df_st.empty else pd.DataFrame()
@@ -1152,14 +1203,9 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                             )
                             body = (
                                 "Yth. Superintendent,\n\nLaporan " + str(tgl_pilih)
-                                + " diperiksa oleh " + str(nama_user)
-                                + ".\nStatus: Menunggu Disetujui.\n\nPEPC Zona 12"
+                                + " diperiksa oleh " + str(nama_user) + ".\nStatus: Menunggu Disetujui.\n\nPEPC Zona 12"
                             )
-                            ok, msg = kirim_email(
-                                email_sup,
-                                "[PEPC] Laporan " + str(tgl_pilih) + " menunggu disetujui",
-                                body,
-                            )
+                            ok, msg = kirim_email(email_sup, "[PEPC] Laporan " + str(tgl_pilih) + " menunggu disetujui", body)
                             st.success("OK. " + msg) if ok else st.warning("Status OK. Email: " + msg)
                             st.rerun()
                 with c2:
@@ -1175,7 +1221,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                             )
                             st.warning("Ditolak.")
                             st.rerun()
-
         st.markdown("---")
         if role in ["disetujui", "admin"]:
             st.markdown("#### Menunggu Disetujui")
@@ -1191,37 +1236,27 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                 with c3:
                     if st.button("Setujui Final", type="primary", key="ok_setujui"):
                         row_info = pending2[pending2["Tanggal"].astype(str) == str(tgl_pilih2)]
-                        diajukan = ""
-                        if len(row_info) > 0:
-                            diajukan = str(row_info.iloc[-1].get("Diajukan_Oleh", "") or "")
+                        diajukan = str(row_info.iloc[-1].get("Diajukan_Oleh", "") or "") if len(row_info) > 0 else ""
                         upsert_status(
                             str(tgl_pilih2), Status="Final",
                             Disetujui_Oleh=str(nama_user),
                             Waktu_Disetujui=datetime.now().strftime("%Y-%m-%d %H:%M"),
                             Catatan_Tolak="",
                         )
-                        # Email notifikasi ke akun pengirim aplikasi (petugas)
                         smtp_em, _ = load_smtp_config()
-                        tujuan_petugas = smtp_em if smtp_em and "@" in smtp_em else "pengirimaplikasi@gmail.com"
+                        tujuan = smtp_em if smtp_em and "@" in smtp_em else "pengirimaplikasi@gmail.com"
                         body_final = (
                             "Yth. Petugas / Tim Monitoring,\n\n"
-                            "Laporan pemantauan udara sesaat tanggal " + str(tgl_pilih2) + "\n"
-                            "telah DISETUJUI FINAL oleh Superintendent HSSE (" + str(nama_user) + ").\n\n"
-                            "Diajukan oleh: " + (diajukan if diajukan else "-") + "\n"
-                            "Status: Final\n\n"
-                            "Petugas dapat mengunduh PDF di menu Download Laporan.\n\n"
-                            "PEPC Zona 12 — Sistem Pemantauan Udara Sesaat"
+                            "Laporan tanggal " + str(tgl_pilih2) + " telah DISETUJUI FINAL oleh "
+                            + str(nama_user) + ".\nDiajukan oleh: " + (diajukan or "-")
+                            + "\nStatus: Final\n\nPetugas dapat unduh PDF.\n\nPEPC Zona 12"
                         )
                         ok_mail, msg_mail = kirim_email(
-                            tujuan_petugas,
-                            "[PEPC] Laporan " + str(tgl_pilih2) + " SUDAH FINAL — siap unduh PDF",
+                            tujuan,
+                            "[PEPC] Laporan " + str(tgl_pilih2) + " SUDAH FINAL",
                             body_final,
                         )
-                        if ok_mail:
-                            st.success("Final. Notifikasi email: " + msg_mail)
-                        else:
-                            st.success("Status Final tersimpan.")
-                            st.warning("Email notifikasi: " + msg_mail)
+                        st.success("Final. " + msg_mail) if ok_mail else st.success("Final. Email: " + msg_mail)
                         st.rerun()
                 with c4:
                     if st.button("Tolak", key="tolak_setujui"):
@@ -1259,7 +1294,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                     pass
             if perlu:
                 df_alat.to_excel(FILE_ALAT, index=False)
-
         st.markdown("#### Status Terkini")
         cols = st.columns(min(4, max(len(daftar_alat), 1)))
         for i, nama in enumerate(daftar_alat):
@@ -1275,7 +1309,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                         st.error("**" + nama + "** — Belum dicek")
                 else:
                     st.warning("**" + nama + "** — Belum dicek")
-
         st.markdown("---")
         alat = st.selectbox("Pilih Alat *", daftar_alat, key="pilih_alat_cek")
         nl = (alat or "").lower()
@@ -1295,12 +1328,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                 with d:
                     chk_lel = st.checkbox("LEL OK", value=True)
                 semua_ok = chk_h2s and chk_co and chk_o2 and chk_lel
-                ind = (
-                    "H2S:" + ("Ya" if chk_h2s else "Tidak")
-                    + ", CO:" + ("Ya" if chk_co else "Tidak")
-                    + ", O2:" + ("Ya" if chk_o2 else "Tidak")
-                    + ", LEL:" + ("Ya" if chk_lel else "Tidak")
-                )
+                ind = "H2S:" + ("Ya" if chk_h2s else "Tidak") + ", CO:" + ("Ya" if chk_co else "Tidak") + ", O2:" + ("Ya" if chk_o2 else "Tidak") + ", LEL:" + ("Ya" if chk_lel else "Tidak")
             elif jenis == "SO2":
                 chk = st.checkbox("SO2 OK", value=True)
                 semua_ok, ind = chk, "SO2:" + ("Ya" if chk else "Tidak")
@@ -1320,8 +1348,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                         "Nama_Alat": alat,
                         "Tanggal_Inspeksi": tgl_insp.strftime("%Y-%m-%d"),
                         "Tanggal_Berikutnya": tgl_next,
-                        "Indikator": ind,
-                        "Status": status,
+                        "Indikator": ind, "Status": status,
                         "Petugas": petugas.strip(),
                         "Keterangan": ket.strip() if ket else "",
                     }])
@@ -1333,13 +1360,9 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                     st.rerun()
         if not df_alat.empty:
             st.markdown("#### Riwayat")
-            st.dataframe(
-                df_alat.sort_values("Tanggal_Inspeksi", ascending=False),
-                use_container_width=True,
-                hide_index=True,
-            )
+            st.dataframe(df_alat.sort_values("Tanggal_Inspeksi", ascending=False), use_container_width=True, hide_index=True)
 
-    # ===================== MASTER DATA =====================
+    # ===================== MASTER DATA (Supabase) =====================
     elif pilihan_menu == "5. Kelola Master Data":
         st.markdown("### 5. Kelola Master Data")
         tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
@@ -1349,14 +1372,8 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
 
         with tab1:
             st.markdown("#### Titik Pantau")
-            if os.path.exists(FILE_TITIK):
-                df_titik = pd.read_excel(FILE_TITIK)
-            else:
-                data = [{"Kode": k, "Lokasi": v["Lokasi"], "Latitude": v["Lat"], "Longitude": v["Long"],
-                         "Latitude_NS": v["LatNS"], "Longitude_NS": v["LongNS"]} for k, v in DEFAULT_TITIK.items()]
-                df_titik = pd.DataFrame(data)
-                df_titik.to_excel(FILE_TITIK, index=False)
-            st.dataframe(df_titik, use_container_width=True, hide_index=True)
+            df_titik = load_titik_df()
+            st.dataframe(df_titik.drop(columns=["id"], errors="ignore"), use_container_width=True, hide_index=True)
             mode_titik = st.radio("Aksi", ["Tambah Titik Baru", "Update Titik", "Hapus Titik"], horizontal=True, key="mode_titik")
             with st.form("form_titik"):
                 if mode_titik == "Tambah Titik Baru":
@@ -1367,7 +1384,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                     lat_ns = st.text_input("Latitude NS")
                     long_ns = st.text_input("Longitude NS")
                 elif mode_titik == "Update Titik":
-                    list_kode = df_titik["Kode"].tolist() if not df_titik.empty else []
+                    list_kode = df_titik["Kode"].tolist() if "Kode" in df_titik.columns and not df_titik.empty else []
                     kode = st.selectbox("Kode *", list_kode)
                     row = df_titik[df_titik["Kode"] == kode].iloc[0] if kode and len(df_titik) else None
                     lokasi = st.text_input("Lokasi *", value=str(row["Lokasi"]) if row is not None else "")
@@ -1376,73 +1393,71 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                     lat_ns = st.text_input("Latitude NS", value=str(row["Latitude_NS"]) if row is not None else "")
                     long_ns = st.text_input("Longitude NS", value=str(row["Longitude_NS"]) if row is not None else "")
                 else:
-                    list_kode = df_titik["Kode"].tolist() if not df_titik.empty else []
+                    list_kode = df_titik["Kode"].tolist() if "Kode" in df_titik.columns and not df_titik.empty else []
                     kode = st.selectbox("Hapus kode *", list_kode)
                     lokasi = lat = long = lat_ns = long_ns = ""
                 if st.form_submit_button("Simpan", type="primary"):
-                    if mode_titik == "Tambah Titik Baru":
-                        if not all([str(kode).strip(), lokasi.strip(), lat.strip(), long.strip()]):
-                            st.error("Field wajib belum lengkap")
-                        elif str(kode).strip() in df_titik["Kode"].values:
-                            st.error("Kode sudah ada")
-                        else:
-                            baru = pd.DataFrame([{
-                                "Kode": str(kode).strip(), "Lokasi": lokasi.strip(),
-                                "Latitude": lat.strip(), "Longitude": long.strip(),
-                                "Latitude_NS": lat_ns.strip() or lat.strip(),
-                                "Longitude_NS": long_ns.strip() or long.strip(),
-                            }])
-                            pd.concat([df_titik, baru], ignore_index=True).to_excel(FILE_TITIK, index=False)
-                            st.success("Ditambahkan")
+                    try:
+                        sb = get_supabase()
+                        if mode_titik == "Tambah Titik Baru":
+                            if not all([str(kode).strip(), lokasi.strip(), lat.strip(), long.strip()]):
+                                st.error("Field wajib belum lengkap")
+                            else:
+                                sb.table("titik_pantau").insert({
+                                    "kode": str(kode).strip(), "lokasi": lokasi.strip(),
+                                    "latitude": lat.strip(), "longitude": long.strip(),
+                                    "latitude_ns": lat_ns.strip() or lat.strip(),
+                                    "longitude_ns": long_ns.strip() or long.strip(),
+                                }).execute()
+                                st.success("Ditambahkan ke Supabase")
+                                st.rerun()
+                        elif mode_titik == "Update Titik":
+                            sb.table("titik_pantau").update({
+                                "lokasi": lokasi.strip(), "latitude": lat.strip(), "longitude": long.strip(),
+                                "latitude_ns": lat_ns.strip() or lat.strip(),
+                                "longitude_ns": long_ns.strip() or long.strip(),
+                            }).eq("kode", kode).execute()
+                            st.success("Diperbarui")
                             st.rerun()
-                    elif mode_titik == "Update Titik":
-                        df_titik.loc[df_titik["Kode"] == kode, ["Lokasi", "Latitude", "Longitude", "Latitude_NS", "Longitude_NS"]] = [
-                            lokasi.strip(), lat.strip(), long.strip(),
-                            lat_ns.strip() or lat.strip(), long_ns.strip() or long.strip(),
-                        ]
-                        df_titik.to_excel(FILE_TITIK, index=False)
-                        st.success("Diperbarui")
-                        st.rerun()
-                    else:
-                        df_titik[df_titik["Kode"] != kode].to_excel(FILE_TITIK, index=False)
-                        st.success("Dihapus")
-                        st.rerun()
+                        else:
+                            sb.table("titik_pantau").delete().eq("kode", kode).execute()
+                            st.success("Dihapus")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(str(e))
 
         with tab2:
             st.markdown("#### Daftar Alat")
-            if os.path.exists(FILE_MASTER_ALAT):
-                df_master = pd.read_excel(FILE_MASTER_ALAT)
-            else:
-                df_master = pd.DataFrame({"Nama_Alat": DEFAULT_ALAT})
-                df_master.to_excel(FILE_MASTER_ALAT, index=False)
-            st.dataframe(df_master, use_container_width=True, hide_index=True)
+            alat_list = load_daftar_alat()
+            st.dataframe(pd.DataFrame({"Nama_Alat": alat_list}), use_container_width=True, hide_index=True)
             mode_alat = st.radio("Aksi", ["Tambah Alat Baru", "Update Nama Alat", "Hapus Alat"], horizontal=True, key="mode_alat")
             with st.form("form_alat"):
                 if mode_alat == "Tambah Alat Baru":
                     nama_alat = st.text_input("Nama Alat *")
                     nama_lama = None
                 elif mode_alat == "Update Nama Alat":
-                    list_a = df_master["Nama_Alat"].tolist()
-                    nama_lama = st.selectbox("Pilih alat", list_a)
+                    nama_lama = st.selectbox("Pilih alat", alat_list)
                     nama_alat = st.text_input("Nama baru *", value=nama_lama or "")
                 else:
-                    nama_alat = st.selectbox("Hapus", df_master["Nama_Alat"].tolist())
+                    nama_alat = st.selectbox("Hapus", alat_list)
                     nama_lama = None
                 if st.form_submit_button("Simpan", type="primary"):
-                    if mode_alat == "Tambah Alat Baru":
-                        if nama_alat.strip() and nama_alat.strip() not in df_master["Nama_Alat"].values:
-                            pd.concat([df_master, pd.DataFrame([{"Nama_Alat": nama_alat.strip()}])], ignore_index=True).to_excel(FILE_MASTER_ALAT, index=False)
+                    try:
+                        sb = get_supabase()
+                        if mode_alat == "Tambah Alat Baru" and nama_alat.strip():
+                            sb.table("daftar_alat").insert({"nama_alat": nama_alat.strip()}).execute()
                             st.success("OK")
                             st.rerun()
-                    elif mode_alat == "Update Nama Alat":
-                        df_master.loc[df_master["Nama_Alat"] == nama_lama, "Nama_Alat"] = nama_alat.strip()
-                        df_master.to_excel(FILE_MASTER_ALAT, index=False)
-                        st.success("OK")
-                        st.rerun()
-                    else:
-                        df_master[df_master["Nama_Alat"] != nama_alat].to_excel(FILE_MASTER_ALAT, index=False)
-                        st.success("OK")
-                        st.rerun()
+                        elif mode_alat == "Update Nama Alat" and nama_lama:
+                            sb.table("daftar_alat").update({"nama_alat": nama_alat.strip()}).eq("nama_alat", nama_lama).execute()
+                            st.success("OK")
+                            st.rerun()
+                        elif mode_alat == "Hapus Alat":
+                            sb.table("daftar_alat").delete().eq("nama_alat", nama_alat).execute()
+                            st.success("OK")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(str(e))
 
         with tab3:
             st.markdown("#### Upload Peta")
@@ -1481,12 +1496,21 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                     ns = st.text_input("Nama Disetujui", value=peng["Nama_Disetujui"])
                     js = st.text_input("Jabatan Disetujui", value=peng["Jabatan_Disetujui"])
                 if st.form_submit_button("Simpan", type="primary"):
-                    pd.DataFrame([{
-                        "Nama_Diperiksa": nd, "Jabatan_Diperiksa": jd,
-                        "Nama_Disetujui": ns, "Jabatan_Disetujui": js,
-                    }]).to_excel(FILE_PENGATURAN, index=False)
-                    st.success("OK")
-                    st.rerun()
+                    try:
+                        sb = get_supabase()
+                        payload = {
+                            "nama_diperiksa": nd, "jabatan_diperiksa": jd,
+                            "nama_disetujui": ns, "jabatan_disetujui": js,
+                        }
+                        cek = sb.table("pengaturan_laporan").select("id").limit(1).execute()
+                        if cek.data:
+                            sb.table("pengaturan_laporan").update(payload).eq("id", cek.data[0]["id"]).execute()
+                        else:
+                            sb.table("pengaturan_laporan").insert(payload).execute()
+                        st.success("Disimpan ke Supabase")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(str(e))
 
         with tab5:
             st.markdown("#### Upload Tanda Tangan")
@@ -1510,36 +1534,34 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
 
         with tab6:
             st.markdown("#### Kelola Kesimpulan")
-            if os.path.exists(FILE_KESIMPULAN):
-                df_kes = pd.read_excel(FILE_KESIMPULAN)
-            else:
-                df_kes = pd.DataFrame({"Kesimpulan": DEFAULT_KESIMPULAN})
-                df_kes.to_excel(FILE_KESIMPULAN, index=False)
-            st.dataframe(df_kes, use_container_width=True, hide_index=True)
+            lst = load_kesimpulan_list()
+            st.dataframe(pd.DataFrame({"Kesimpulan": lst}), use_container_width=True, hide_index=True)
             mode_kes = st.radio("Aksi", ["Tambah", "Update", "Hapus"], horizontal=True, key="mode_kes")
             with st.form("form_kes"):
                 if mode_kes == "Tambah":
                     teks = st.text_area("Teks *", height=80)
                     idx = None
                 elif mode_kes == "Update":
-                    lst = df_kes["Kesimpulan"].tolist()
                     idx = st.selectbox("Pilih", range(len(lst)), format_func=lambda i: lst[i])
-                    teks = st.text_area("Teks baru *", value=lst[idx], height=80)
+                    teks = st.text_area("Teks baru *", value=lst[idx] if lst else "", height=80)
                 else:
-                    lst = df_kes["Kesimpulan"].tolist()
                     idx = st.selectbox("Hapus", range(len(lst)), format_func=lambda i: lst[i])
                     teks = ""
                 if st.form_submit_button("Simpan", type="primary"):
-                    if mode_kes == "Tambah" and teks.strip():
-                        pd.concat([df_kes, pd.DataFrame([{"Kesimpulan": teks.strip()}])], ignore_index=True).to_excel(FILE_KESIMPULAN, index=False)
-                        st.rerun()
-                    elif mode_kes == "Update" and teks.strip():
-                        df_kes.at[idx, "Kesimpulan"] = teks.strip()
-                        df_kes.to_excel(FILE_KESIMPULAN, index=False)
-                        st.rerun()
-                    elif mode_kes == "Hapus" and len(df_kes) > 1:
-                        df_kes.drop(idx).reset_index(drop=True).to_excel(FILE_KESIMPULAN, index=False)
-                        st.rerun()
+                    try:
+                        sb = get_supabase()
+                        if mode_kes == "Tambah" and teks.strip():
+                            sb.table("kesimpulan").insert({"teks": teks.strip()}).execute()
+                            st.rerun()
+                        elif mode_kes == "Update" and teks.strip() and lst:
+                            old = lst[idx]
+                            sb.table("kesimpulan").update({"teks": teks.strip()}).eq("teks", old).execute()
+                            st.rerun()
+                        elif mode_kes == "Hapus" and len(lst) > 1:
+                            sb.table("kesimpulan").delete().eq("teks", lst[idx]).execute()
+                            st.rerun()
+                    except Exception as e:
+                        st.error(str(e))
 
         with tab7:
             st.markdown("#### Kelola Notifikasi Email")
@@ -1555,7 +1577,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                         save_smtp_config(smtp_email, smtp_pass)
                         st.success("Disimpan")
                         st.rerun()
-
             emails_dip = load_email_list(FILE_EMAIL_DIPERIKSA, ["dltdelta84@gmail.com"])
             st.markdown("##### Email Diperiksa")
             st.dataframe(pd.DataFrame({"Email": emails_dip}), use_container_width=True, hide_index=True)
@@ -1563,14 +1584,16 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
             with st.form("form_email_dip"):
                 em = st.text_input("Email") if mode_ed == "Tambah" else st.selectbox("Hapus", emails_dip or ["-"])
                 if st.form_submit_button("Simpan Diperiksa"):
-                    if mode_ed == "Tambah" and em.strip() and "@" in em and em.strip() not in emails_dip:
-                        emails_dip.append(em.strip())
-                        pd.DataFrame({"Email": emails_dip}).to_excel(FILE_EMAIL_DIPERIKSA, index=False)
-                        st.rerun()
-                    elif mode_ed == "Hapus" and em in emails_dip:
-                        pd.DataFrame({"Email": [x for x in emails_dip if x != em]}).to_excel(FILE_EMAIL_DIPERIKSA, index=False)
-                        st.rerun()
-
+                    try:
+                        sb = get_supabase()
+                        if mode_ed == "Tambah" and em.strip() and "@" in em:
+                            sb.table("email_diperiksa").insert({"email": em.strip()}).execute()
+                            st.rerun()
+                        elif mode_ed == "Hapus" and em in emails_dip:
+                            sb.table("email_diperiksa").delete().eq("email", em).execute()
+                            st.rerun()
+                    except Exception as e:
+                        st.error(str(e))
             emails_dis = load_email_list(FILE_EMAIL_DISETUJUI, ["delta.unigoro@gmail.com"])
             st.markdown("##### Email Disetujui")
             st.dataframe(pd.DataFrame({"Email": emails_dis}), use_container_width=True, hide_index=True)
@@ -1578,14 +1601,16 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
             with st.form("form_email_dis"):
                 em2 = st.text_input("Email ") if mode_es == "Tambah" else st.selectbox("Hapus ", emails_dis or ["-"])
                 if st.form_submit_button("Simpan Disetujui"):
-                    if mode_es == "Tambah" and em2.strip() and "@" in em2 and em2.strip() not in emails_dis:
-                        emails_dis.append(em2.strip())
-                        pd.DataFrame({"Email": emails_dis}).to_excel(FILE_EMAIL_DISETUJUI, index=False)
-                        st.rerun()
-                    elif mode_es == "Hapus" and em2 in emails_dis:
-                        pd.DataFrame({"Email": [x for x in emails_dis if x != em2]}).to_excel(FILE_EMAIL_DISETUJUI, index=False)
-                        st.rerun()
-
+                    try:
+                        sb = get_supabase()
+                        if mode_es == "Tambah" and em2.strip() and "@" in em2:
+                            sb.table("email_disetujui").insert({"email": em2.strip()}).execute()
+                            st.rerun()
+                        elif mode_es == "Hapus" and em2 in emails_dis:
+                            sb.table("email_disetujui").delete().eq("email", em2).execute()
+                            st.rerun()
+                    except Exception as e:
+                        st.error(str(e))
             if st.button("Tes kirim email Diperiksa"):
                 tujuan = emails_dip[0] if emails_dip else "dltdelta84@gmail.com"
                 ok, msg = kirim_email(tujuan, "[PEPC] Tes", "Tes SMTP aplikasi pemantauan udara.")
