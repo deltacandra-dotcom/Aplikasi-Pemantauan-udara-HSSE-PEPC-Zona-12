@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import os
 import smtplib
+import tempfile
+import urllib.request
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
@@ -62,6 +64,41 @@ def get_supabase():
     return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
 
 
+def resolve_foto_path(path_str):
+    """File lokal, path Storage, atau download public URL ke temp untuk PDF."""
+    if not path_str or str(path_str).strip() in ("", "nan", "None"):
+        return None
+    path_str = str(path_str).strip()
+
+    if os.path.exists(path_str):
+        return path_str
+
+    local_try = os.path.join("foto_monitoring", path_str.replace("/", os.sep))
+    if os.path.exists(local_try):
+        return local_try
+
+    if path_str.startswith("http://") or path_str.startswith("https://"):
+        try:
+            ext = os.path.splitext(path_str.split("?")[0])[1] or ".jpg"
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+            urllib.request.urlretrieve(path_str, tmp.name)
+            return tmp.name
+        except Exception:
+            return None
+
+    try:
+        sb = get_supabase()
+        pub = sb.storage.from_("foto-monitoring").get_public_url(path_str)
+        if pub:
+            ext = os.path.splitext(path_str)[1] or ".jpg"
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+            urllib.request.urlretrieve(pub, tmp.name)
+            return tmp.name
+    except Exception:
+        pass
+    return None
+
+
 def load_monitoring_df():
     try:
         sb = get_supabase()
@@ -95,7 +132,7 @@ def load_titik():
         if res.data:
             titik = {}
             for row in res.data:
-                kode = str(row.get("kode", ""))
+                kode = str(row.get("kode", "") or "")
                 if not kode:
                     continue
                 titik[kode] = {
@@ -125,7 +162,6 @@ def load_titik():
 
 
 def load_titik_df():
-    """DataFrame untuk menu Kelola Titik."""
     try:
         sb = get_supabase()
         res = sb.table("titik_pantau").select("*").order("id", desc=False).execute()
@@ -281,7 +317,6 @@ def upsert_status(tgl_str, **kwargs):
 
 
 def load_email_list(file_path, default_list=None):
-    """file_path: FILE_EMAIL_DIPERIKSA atau FILE_EMAIL_DISETUJUI → baca tabel Supabase dulu."""
     if default_list is None:
         default_list = []
     table = "email_diperiksa" if "diperiksa" in file_path else "email_disetujui"
@@ -366,6 +401,39 @@ def add_header_logo(canvas, doc):
         except Exception:
             pass
     canvas.restoreState()
+
+
+def ambil_foto(df_shift, kode, tgl_str, shift_folder):
+    path1, path2 = None, None
+    match = df_shift[df_shift["Kode_Titik"] == kode] if not df_shift.empty else pd.DataFrame()
+    if len(match) > 0:
+        if "Path_Foto" in match.columns:
+            p1 = match.iloc[0].get("Path_Foto", "")
+            if p1 and str(p1).strip() not in ("", "nan", "None"):
+                path1 = str(p1).strip()
+        if "Path_Foto2" in match.columns:
+            p2 = match.iloc[0].get("Path_Foto2", "")
+            if p2 and str(p2).strip() not in ("", "nan", "None"):
+                path2 = str(p2).strip()
+    folder = "foto_monitoring/" + tgl_str + "/" + shift_folder
+    if not path1:
+        for ext in ["jpg", "jpeg", "png"]:
+            for nomor in ["_1", ""]:
+                candidate = folder + "/" + kode.replace(" ", "_") + nomor + "." + ext
+                if os.path.exists(candidate):
+                    path1 = candidate
+                    break
+            if path1:
+                break
+    if not path2:
+        for ext in ["jpg", "jpeg", "png"]:
+            candidate = folder + "/" + kode.replace(" ", "_") + "_2." + ext
+            if os.path.exists(candidate):
+                path2 = candidate
+                break
+    path1 = resolve_foto_path(path1) if path1 else None
+    path2 = resolve_foto_path(path2) if path2 else None
+    return path1, path2
 
 
 def buat_excel_harian_resmi(df_db_all, tgl_target):
@@ -600,37 +668,6 @@ def buat_excel_bulanan(df_db_all, bulan_target, tahun_target):
     bio = BytesIO()
     wb.save(bio)
     return bio.getvalue()
-
-
-def ambil_foto(df_shift, kode, tgl_str, shift_folder):
-    path1, path2 = None, None
-    match = df_shift[df_shift["Kode_Titik"] == kode] if not df_shift.empty else pd.DataFrame()
-    if len(match) > 0:
-        if "Path_Foto" in match.columns:
-            p1 = match.iloc[0].get("Path_Foto", "")
-            if p1 and os.path.exists(str(p1)):
-                path1 = str(p1)
-        if "Path_Foto2" in match.columns:
-            p2 = match.iloc[0].get("Path_Foto2", "")
-            if p2 and os.path.exists(str(p2)):
-                path2 = str(p2)
-    folder = "foto_monitoring/" + tgl_str + "/" + shift_folder
-    if not path1:
-        for ext in ["jpg", "jpeg", "png"]:
-            for nomor in ["_1", ""]:
-                candidate = folder + "/" + kode.replace(" ", "_") + nomor + "." + ext
-                if os.path.exists(candidate):
-                    path1 = candidate
-                    break
-            if path1:
-                break
-    if not path2:
-        for ext in ["jpg", "jpeg", "png"]:
-            candidate = folder + "/" + kode.replace(" ", "_") + "_2." + ext
-            if os.path.exists(candidate):
-                path2 = candidate
-                break
-    return path1, path2
 def buat_pdf_laporan(df_db, tgl_target):
     buffer = BytesIO()
     doc = SimpleDocTemplate(
@@ -948,7 +985,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
     titik_data = load_titik()
     daftar_alat = load_daftar_alat()
 
-    # ===================== REVIEW =====================
     if pilihan_menu == "2. Review Data":
         st.markdown("### 2. Portal Pencarian & Review Data")
         df_db = load_monitoring_df()
@@ -1017,7 +1053,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
         else:
             st.info("Belum ada data pada filter ini.")
 
-    # ===================== DOWNLOAD =====================
     elif pilihan_menu == "3. Download Laporan":
         st.markdown("### 3. Panel Cetak & Download")
         df_db = load_monitoring_df()
@@ -1166,7 +1201,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
             else:
                 st.warning("PDF petugas hanya setelah Final.")
 
-    # ===================== PERSETUJUAN =====================
     elif pilihan_menu == "3b. Persetujuan Laporan":
         st.markdown("### Persetujuan Laporan")
         if role not in ["diperiksa", "disetujui", "admin"]:
@@ -1272,7 +1306,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                             st.warning("Ditolak.")
                             st.rerun()
 
-    # ===================== CEK KESIAPAN ALAT =====================
     elif pilihan_menu == "4. Cek Kesiapan Alat":
         st.markdown("### 4. Cek Kesiapan Alat")
         if os.path.exists(FILE_ALAT):
@@ -1362,7 +1395,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
             st.markdown("#### Riwayat")
             st.dataframe(df_alat.sort_values("Tanggal_Inspeksi", ascending=False), use_container_width=True, hide_index=True)
 
-    # ===================== MASTER DATA (Supabase) =====================
     elif pilihan_menu == "5. Kelola Master Data":
         st.markdown("### 5. Kelola Master Data")
         tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
@@ -1616,7 +1648,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                 ok, msg = kirim_email(tujuan, "[PEPC] Tes", "Tes SMTP aplikasi pemantauan udara.")
                 st.success(msg) if ok else st.error(msg)
 
-    # ===================== KELOLA USER =====================
     elif pilihan_menu == "6. Kelola User":
         st.markdown("### 6. Kelola User")
         st.info("Login memakai tabel Supabase **users**.")
