@@ -870,8 +870,8 @@ def buat_pdf_laporan(df_db, tgl_target):
     def buat_tabel_hasil(df_shift, judul):
         elems = [Paragraph("<b>" + judul + "</b>", style_small)]
         if pakai_noise:
-            data = [["No.", "Kode", "Lokasi", "Waktu", "H2S (ppm)", "O2 (%)", "CO (ppm)", "LEL (%)", "SO2 (ppm)", "Kebisingan\n(dB)"]]
-            widths = [0.65 * cm, 1.1 * cm, 2.7 * cm, 1.5 * cm, 1.4 * cm, 1.25 * cm, 1.3 * cm, 1.25 * cm, 1.4 * cm, 2.15 * cm]
+            data = [["No.", "Kode", "Lokasi", "Waktu", "H2S (ppm)", "O2 (%)", "CO (ppm)", "LEL (%)", "SO2 (ppm)", "Kebisingan (dB)"]]
+            widths = [0.6 * cm, 1.05 * cm, 2.55 * cm, 1.45 * cm, 1.35 * cm, 1.2 * cm, 1.25 * cm, 1.2 * cm, 1.35 * cm, 2.4 * cm]
         else:
             data = [["No.", "Kode", "Lokasi", "Waktu", "H2S (ppm)", "O2 (%)", "CO (ppm)", "LEL (%)", "SO2 (ppm)"]]
             widths = [0.8 * cm, 1.3 * cm, 3.5 * cm, 1.8 * cm, 1.8 * cm, 1.5 * cm, 1.6 * cm, 1.5 * cm, 1.7 * cm]
@@ -908,7 +908,8 @@ def buat_pdf_laporan(df_db, tgl_target):
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0288D1")),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 7 if pakai_noise else 8),
+            ("FONTSIZE", (0, 0), (-1, 0), 6.5 if pakai_noise else 8),
+            ("FONTSIZE", (0, 1), (-1, -1), 7 if pakai_noise else 8),
             ("ALIGN", (0, 0), (-1, -1), "CENTER"),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ("GRID", (0, 0), (-1, -1), 0.6, colors.black),
@@ -1196,7 +1197,10 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 )
         with tab3:
-            st.caption("PDF: petugas setelah Final. Officer/Superintendent bisa preview.")
+            st.caption(
+                "Semua role (petugas, diperiksa, disetujui, admin) dapat preview/unduh PDF. "
+                "TTD Diperiksa & Disetujui muncul bertahap sesuai status approval."
+            )
             tgl_pdf = st.date_input("Pilih Tanggal untuk PDF", datetime.now(), key="tgl_pdf")
             tgl_pdf_str = tgl_pdf.strftime("%Y-%m-%d")
             status_now = get_status_tanggal(tgl_pdf_str)
@@ -1299,23 +1303,33 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                 st.info("Menunggu Environment Officer.")
             elif role in ["petugas", "admin"] and status_now == "Menunggu Disetujui":
                 st.info("Menunggu Superintendent HSSE.")
-            boleh_pdf = status_now == "Final" or role in ["diperiksa", "disetujui", "admin"]
+
+            boleh_pdf = role in ["petugas", "diperiksa", "disetujui", "admin"]
             if boleh_pdf:
-                label = "Generate & Download PDF" if status_now == "Final" else "Preview PDF (review)"
+                if status_now == "Final":
+                    label = "Generate & Download PDF"
+                else:
+                    label = "Preview PDF (review) — TTD pejabat sesuai status"
                 if st.button(label, type="primary", key="btn_pdf_gen"):
                     with st.spinner("Membuat PDF..."):
                         try:
                             pdf_data = buat_pdf_laporan(df_db, tgl_pdf)
                             st.download_button(
-                                "Download PDF", data=pdf_data,
+                                "Download PDF",
+                                data=pdf_data,
                                 file_name="Laporan_Pemantauan_Udara_" + tgl_pdf.strftime("%Y%m%d") + ".pdf",
                                 mime="application/pdf",
                             )
                             st.success("PDF siap.")
+                            if status_now != "Final":
+                                st.caption(
+                                    "Status **" + status_now
+                                    + "**: kolom TTD Diperiksa/Disetujui masih kosong sampai disetujui bertahap."
+                                )
                         except Exception as e:
                             st.error("Gagal: " + str(e))
             else:
-                st.warning("PDF petugas hanya setelah Final.")
+                st.warning("Akses unduh PDF tidak tersedia untuk role ini.")
 
     elif pilihan_menu == "3b. Persetujuan Laporan":
         st.markdown("### Persetujuan Laporan")
@@ -1437,7 +1451,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
         st.markdown("### 4. Cek Kesiapan Alat")
         df_alat = load_cek_alat_df()
         hari_ini = datetime.now().date()
-        # Tandai lewat jatuh tempo (hanya tampilan; status disimpan saat cek baru)
         st.markdown("#### Status Terkini")
         cols = st.columns(min(4, max(len(daftar_alat), 1)))
         for i, nama in enumerate(daftar_alat):
@@ -1506,7 +1519,6 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                     ok, msg = simpan_cek_alat_row(row)
                     if ok:
                         try:
-                            # cadangan lokal
                             df_baru = pd.DataFrame([row])
                             if os.path.exists(FILE_ALAT):
                                 df_lama = pd.read_excel(FILE_ALAT)
