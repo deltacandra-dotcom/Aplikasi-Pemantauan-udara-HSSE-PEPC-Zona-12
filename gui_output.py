@@ -34,6 +34,8 @@ FILE_SMTP = "smtp_config.xlsx"
 FOLDER_PETA = "peta_monitoring"
 FOLDER_TTD = "tanda_tangan"
 
+APP_LINK = "https://aplikasi-pemantauan-udara-hsse-pepc-zona-12-2ubay2uzebsaqvdkkc.streamlit.app/"
+
 DEFAULT_TITIK = {
     "TP 1": {"Lokasi": "Pemukiman Ngasem", "Lat": "-7.1234", "Long": "111.6789", "LatNS": "-7.1234", "LongNS": "111.6789"},
     "TP 2": {"Lokasi": "Pemukiman Bandungrejo", "Lat": "-7.1245", "Long": "111.6791", "LatNS": "-7.1245", "LongNS": "111.6791"},
@@ -64,8 +66,15 @@ def get_supabase():
     return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
 
 
+def teks_email_footer():
+    return (
+        "\n\nSilakan buka aplikasi untuk meninjau atau menyetujui laporan:\n"
+        + APP_LINK
+        + "\n\nHormat kami,\nSistem Pemantauan Udara Sesaat\nHSSE – PEPC Zona 12"
+    )
+
+
 def resolve_foto_path(path_str):
-    """File lokal, path Storage, atau download public URL ke temp untuk PDF."""
     if not path_str or str(path_str).strip() in ("", "nan", "None"):
         return None
     path_str = str(path_str).strip()
@@ -786,9 +795,28 @@ def buat_pdf_laporan(df_db, tgl_target):
         style_normal,
     ))
 
+    def ada_noise_df(dfx):
+        if dfx is None or dfx.empty or "Noise" not in dfx.columns:
+            return False
+        for v in dfx["Noise"].tolist():
+            try:
+                if v is not None and str(v).strip() not in ("", "nan", "None") and float(v) > 0:
+                    return True
+            except Exception:
+                pass
+        return False
+
+    pakai_noise = ada_noise_df(df_hari)
+
     def buat_tabel_hasil(df_shift, judul):
         elems = [Paragraph("<b>" + judul + "</b>", style_small)]
-        data = [["No.", "Kode", "Lokasi", "Waktu", "H2S (ppm)", "O2 (%)", "CO (ppm)", "LEL (%)", "SO2 (ppm)"]]
+        if pakai_noise:
+            data = [["No.", "Kode", "Lokasi", "Waktu", "H2S (ppm)", "O2 (%)", "CO (ppm)", "LEL (%)", "SO2 (ppm)", "Kebisingan (dB)"]]
+            widths = [0.7 * cm, 1.2 * cm, 3.0 * cm, 1.6 * cm, 1.5 * cm, 1.3 * cm, 1.4 * cm, 1.3 * cm, 1.5 * cm, 1.8 * cm]
+        else:
+            data = [["No.", "Kode", "Lokasi", "Waktu", "H2S (ppm)", "O2 (%)", "CO (ppm)", "LEL (%)", "SO2 (ppm)"]]
+            widths = [0.8 * cm, 1.3 * cm, 3.5 * cm, 1.8 * cm, 1.8 * cm, 1.5 * cm, 1.6 * cm, 1.5 * cm, 1.7 * cm]
+
         for i, (kode, info) in enumerate(titik_data.items(), 1):
             match = df_shift[df_shift["Kode_Titik"] == kode] if (not df_shift.empty and "Kode_Titik" in df_shift.columns) else pd.DataFrame()
             if len(match) > 0:
@@ -801,15 +829,27 @@ def buat_pdf_laporan(df_db, tgl_target):
                     "{:.1f}".format(float(m.get("LEL", 0) or 0)),
                     "{:.1f}".format(float(m.get("SO2", 0) or 0)),
                 ]
+                if pakai_noise:
+                    try:
+                        nv = m.get("Noise", None)
+                        if nv is not None and str(nv).strip() not in ("", "nan", "None"):
+                            row.append("{:.1f}".format(float(nv)))
+                        else:
+                            row.append("-")
+                    except Exception:
+                        row.append("-")
             else:
                 row = [str(i), kode, info["Lokasi"], "-", "0", "0", "0", "0", "0"]
+                if pakai_noise:
+                    row.append("-")
             data.append(row)
-        t = Table(data, colWidths=[0.8 * cm, 1.3 * cm, 3.5 * cm, 1.8 * cm, 1.8 * cm, 1.5 * cm, 1.6 * cm, 1.5 * cm, 1.7 * cm])
+
+        t = Table(data, colWidths=widths)
         t.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0288D1")),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("FONTSIZE", (0, 0), (-1, -1), 7 if pakai_noise else 8),
             ("ALIGN", (0, 0), (-1, -1), "CENTER"),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ("GRID", (0, 0), (-1, -1), 0.6, colors.black),
@@ -877,8 +917,8 @@ def buat_pdf_laporan(df_db, tgl_target):
         story.append(Spacer(1, 3))
 
     story.append(PageBreak())
-    path_peta1 = os.path.join(FOLDER_PETA, "peta_1.jpg")
-    if os.path.exists(path_peta1):
+    path_peta1 = resolve_foto_path("peta/peta_1.jpg") or os.path.join(FOLDER_PETA, "peta_1.jpg")
+    if path_peta1 and os.path.exists(path_peta1):
         try:
             img_peta = Image(path_peta1, width=15.22 * cm, height=7.41 * cm)
             img_peta.hAlign = "CENTER"
@@ -897,8 +937,8 @@ def buat_pdf_laporan(df_db, tgl_target):
         story.append(buat_blok_foto(caption, path1, path2))
         story.append(Spacer(1, 3))
 
-    path_peta2 = os.path.join(FOLDER_PETA, "peta_2.jpg")
-    if os.path.exists(path_peta2):
+    path_peta2 = resolve_foto_path("peta/peta_2.jpg") or os.path.join(FOLDER_PETA, "peta_2.jpg")
+    if path_peta2 and os.path.exists(path_peta2):
         try:
             img_peta2 = Image(path_peta2, width=15.22 * cm, height=7.41 * cm)
             img_peta2.hAlign = "CENTER"
@@ -922,6 +962,9 @@ def buat_pdf_laporan(df_db, tgl_target):
     story.append(Spacer(1, 6))
 
     peng = load_pengaturan_laporan()
+    status_lap = get_status_tanggal(tgl_str)
+    tampil_dip = status_lap in ["Menunggu Disetujui", "Final"]
+    tampil_dis = status_lap == "Final"
 
     def get_ttd_img(path):
         if os.path.exists(path):
@@ -929,12 +972,19 @@ def buat_pdf_laporan(df_db, tgl_target):
                 return Image(path, width=3.5 * cm, height=2.2 * cm)
             except Exception:
                 return ""
+        base = os.path.basename(path)
+        resolved = resolve_foto_path("ttd/" + base)
+        if resolved and os.path.exists(resolved):
+            try:
+                return Image(resolved, width=3.5 * cm, height=2.2 * cm)
+            except Exception:
+                return ""
         return ""
 
     img_ds = get_ttd_img(os.path.join(FOLDER_TTD, "ttd_day.png"))
     img_ns = get_ttd_img(os.path.join(FOLDER_TTD, "ttd_night.png"))
-    img_dip = get_ttd_img(os.path.join(FOLDER_TTD, "ttd_diperiksa.png"))
-    img_dis = get_ttd_img(os.path.join(FOLDER_TTD, "ttd_disetujui.png"))
+    img_dip = get_ttd_img(os.path.join(FOLDER_TTD, "ttd_diperiksa.png")) if tampil_dip else ""
+    img_dis = get_ttd_img(os.path.join(FOLDER_TTD, "ttd_disetujui.png")) if tampil_dis else ""
 
     ttd_data = [
         [Paragraph("<b>Dilaporkan oleh</b>", style_center), "",
@@ -1172,11 +1222,18 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                             Catatan_Tolak="", Ditolak_Oleh="", Waktu_Tolak="",
                         )
                         body = (
-                            "Yth. Environment Officer,\n\nLaporan " + tgl_pdf_str
-                            + " diajukan oleh " + str(nama_user)
-                            + ".\nStatus: Menunggu Diperiksa.\n\nPEPC Zona 12"
+                            "Yth. Bapak/Ibu Environment Officer,\n\n"
+                            "Dengan hormat, kami sampaikan bahwa laporan pemantauan udara sesaat tanggal "
+                            + tgl_pdf_str + " telah diajukan oleh " + str(nama_user)
+                            + " dan menunggu pemeriksaan Bapak/Ibu.\n\n"
+                            "Status saat ini: Menunggu Diperiksa."
+                            + teks_email_footer()
                         )
-                        ok, msg = kirim_email(email_tujuan, "[PEPC] Laporan " + tgl_pdf_str + " menunggu diperiksa", body)
+                        ok, msg = kirim_email(
+                            email_tujuan,
+                            "[PEPC Zona 12] Laporan " + tgl_pdf_str + " menunggu diperiksa",
+                            body,
+                        )
                         st.success("Diajukan. " + msg) if ok else st.warning("Diajukan. Email: " + msg)
                         st.rerun()
             elif role in ["petugas", "admin"] and status_now == "Menunggu Diperiksa":
@@ -1236,10 +1293,18 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                                 Email_Disetujui=str(email_sup), Catatan_Tolak="",
                             )
                             body = (
-                                "Yth. Superintendent,\n\nLaporan " + str(tgl_pilih)
-                                + " diperiksa oleh " + str(nama_user) + ".\nStatus: Menunggu Disetujui.\n\nPEPC Zona 12"
+                                "Yth. Bapak/Ibu Superintendent Field HSSE,\n\n"
+                                "Dengan hormat, laporan pemantauan udara sesaat tanggal "
+                                + str(tgl_pilih) + " telah diperiksa oleh " + str(nama_user)
+                                + " dan menunggu persetujuan final Bapak/Ibu.\n\n"
+                                "Status saat ini: Menunggu Disetujui."
+                                + teks_email_footer()
                             )
-                            ok, msg = kirim_email(email_sup, "[PEPC] Laporan " + str(tgl_pilih) + " menunggu disetujui", body)
+                            ok, msg = kirim_email(
+                                email_sup,
+                                "[PEPC Zona 12] Laporan " + str(tgl_pilih) + " menunggu disetujui",
+                                body,
+                            )
                             st.success("OK. " + msg) if ok else st.warning("Status OK. Email: " + msg)
                             st.rerun()
                 with c2:
@@ -1280,14 +1345,17 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                         smtp_em, _ = load_smtp_config()
                         tujuan = smtp_em if smtp_em and "@" in smtp_em else "pengirimaplikasi@gmail.com"
                         body_final = (
-                            "Yth. Petugas / Tim Monitoring,\n\n"
-                            "Laporan tanggal " + str(tgl_pilih2) + " telah DISETUJUI FINAL oleh "
-                            + str(nama_user) + ".\nDiajukan oleh: " + (diajukan or "-")
-                            + "\nStatus: Final\n\nPetugas dapat unduh PDF.\n\nPEPC Zona 12"
+                            "Yth. Bapak/Ibu Petugas / Tim Monitoring,\n\n"
+                            "Dengan hormat, kami informasikan bahwa laporan pemantauan udara sesaat tanggal "
+                            + str(tgl_pilih2) + " telah disetujui secara final oleh " + str(nama_user)
+                            + ".\nDiajukan oleh: " + (diajukan or "-")
+                            + "\nStatus: Final.\n\n"
+                            "Petugas dapat mengunduh PDF laporan resmi melalui aplikasi."
+                            + teks_email_footer()
                         )
                         ok_mail, msg_mail = kirim_email(
                             tujuan,
-                            "[PEPC] Laporan " + str(tgl_pilih2) + " SUDAH FINAL",
+                            "[PEPC Zona 12] Laporan " + str(tgl_pilih2) + " SUDAH FINAL",
                             body_final,
                         )
                         st.success("Final. " + msg_mail) if ok_mail else st.success("Final. Email: " + msg_mail)
@@ -1645,7 +1713,12 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                         st.error(str(e))
             if st.button("Tes kirim email Diperiksa"):
                 tujuan = emails_dip[0] if emails_dip else "dltdelta84@gmail.com"
-                ok, msg = kirim_email(tujuan, "[PEPC] Tes", "Tes SMTP aplikasi pemantauan udara.")
+                ok, msg = kirim_email(
+                    tujuan,
+                    "[PEPC Zona 12] Tes notifikasi",
+                    "Yth. Bapak/Ibu,\n\nIni adalah email uji sistem pemantauan udara."
+                    + teks_email_footer(),
+                )
                 st.success(msg) if ok else st.error(msg)
 
     elif pilihan_menu == "6. Kelola User":
