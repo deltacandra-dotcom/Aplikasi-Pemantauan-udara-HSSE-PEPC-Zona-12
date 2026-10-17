@@ -61,6 +61,11 @@ STATUS_TEXT_COLS = [
     "Email_Diperiksa", "Email_Disetujui",
 ]
 
+CEK_ALAT_COLS = [
+    "Nama_Alat", "Tanggal_Inspeksi", "Tanggal_Berikutnya",
+    "Indikator", "Status", "Petugas", "Keterangan", "id",
+]
+
 
 def get_supabase():
     return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
@@ -119,6 +124,50 @@ def resolve_foto_path(path_str):
     except Exception:
         pass
     return None
+
+
+def load_cek_alat_df():
+    try:
+        sb = get_supabase()
+        res = sb.table("cek_kesiapan_alat").select("*").order("id", desc=False).execute()
+        rows = res.data or []
+        if not rows:
+            return pd.DataFrame(columns=CEK_ALAT_COLS)
+        df = pd.DataFrame(rows)
+        rename = {
+            "nama_alat": "Nama_Alat",
+            "tanggal_inspeksi": "Tanggal_Inspeksi",
+            "tanggal_berikutnya": "Tanggal_Berikutnya",
+            "indikator": "Indikator",
+            "status": "Status",
+            "petugas": "Petugas",
+            "keterangan": "Keterangan",
+        }
+        df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
+        return df
+    except Exception:
+        if os.path.exists(FILE_ALAT):
+            return pd.read_excel(FILE_ALAT)
+        return pd.DataFrame(columns=CEK_ALAT_COLS)
+
+
+def simpan_cek_alat_row(row: dict):
+    """Insert satu baris cek alat ke Supabase. Return (ok, msg)."""
+    try:
+        sb = get_supabase()
+        payload = {
+            "nama_alat": str(row.get("Nama_Alat", "")),
+            "tanggal_inspeksi": str(row.get("Tanggal_Inspeksi", "")),
+            "tanggal_berikutnya": str(row.get("Tanggal_Berikutnya", "")),
+            "indikator": str(row.get("Indikator", "")),
+            "status": str(row.get("Status", "")),
+            "petugas": str(row.get("Petugas", "")),
+            "keterangan": str(row.get("Keterangan", "") or ""),
+        }
+        sb.table("cek_kesiapan_alat").insert(payload).execute()
+        return True, "Tersimpan di Supabase"
+    except Exception as e:
+        return False, str(e)
 
 
 def load_monitoring_df():
@@ -821,8 +870,8 @@ def buat_pdf_laporan(df_db, tgl_target):
     def buat_tabel_hasil(df_shift, judul):
         elems = [Paragraph("<b>" + judul + "</b>", style_small)]
         if pakai_noise:
-            data = [["No.", "Kode", "Lokasi", "Waktu", "H2S (ppm)", "O2 (%)", "CO (ppm)", "LEL (%)", "SO2 (ppm)", "Kebisingan (dB)"]]
-            widths = [0.7 * cm, 1.2 * cm, 3.0 * cm, 1.6 * cm, 1.5 * cm, 1.3 * cm, 1.4 * cm, 1.3 * cm, 1.5 * cm, 1.8 * cm]
+            data = [["No.", "Kode", "Lokasi", "Waktu", "H2S (ppm)", "O2 (%)", "CO (ppm)", "LEL (%)", "SO2 (ppm)", "Kebisingan\n(dB)"]]
+            widths = [0.65 * cm, 1.1 * cm, 2.7 * cm, 1.5 * cm, 1.4 * cm, 1.25 * cm, 1.3 * cm, 1.25 * cm, 1.4 * cm, 2.15 * cm]
         else:
             data = [["No.", "Kode", "Lokasi", "Waktu", "H2S (ppm)", "O2 (%)", "CO (ppm)", "LEL (%)", "SO2 (ppm)"]]
             widths = [0.8 * cm, 1.3 * cm, 3.5 * cm, 1.8 * cm, 1.8 * cm, 1.5 * cm, 1.6 * cm, 1.5 * cm, 1.7 * cm]
@@ -1386,32 +1435,22 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
 
     elif pilihan_menu == "4. Cek Kesiapan Alat":
         st.markdown("### 4. Cek Kesiapan Alat")
-        if os.path.exists(FILE_ALAT):
-            df_alat = pd.read_excel(FILE_ALAT)
-        else:
-            df_alat = pd.DataFrame(columns=[
-                "Nama_Alat", "Tanggal_Inspeksi", "Tanggal_Berikutnya",
-                "Indikator", "Status", "Petugas", "Keterangan",
-            ])
+        df_alat = load_cek_alat_df()
         hari_ini = datetime.now().date()
-        if not df_alat.empty and "Tanggal_Berikutnya" in df_alat.columns:
-            perlu = False
-            for idx, row in df_alat.iterrows():
-                try:
-                    if pd.to_datetime(row["Tanggal_Berikutnya"]).date() < hari_ini and row["Status"] == "Siap Pakai":
-                        df_alat.at[idx, "Status"] = "Belum dicek"
-                        perlu = True
-                except Exception:
-                    pass
-            if perlu:
-                df_alat.to_excel(FILE_ALAT, index=False)
+        # Tandai lewat jatuh tempo (hanya tampilan; status disimpan saat cek baru)
         st.markdown("#### Status Terkini")
         cols = st.columns(min(4, max(len(daftar_alat), 1)))
         for i, nama in enumerate(daftar_alat):
             with cols[i % 4]:
-                last = df_alat[df_alat["Nama_Alat"] == nama].tail(1)
+                last = df_alat[df_alat["Nama_Alat"] == nama].tail(1) if not df_alat.empty and "Nama_Alat" in df_alat.columns else pd.DataFrame()
                 if len(last) > 0:
-                    st_ = last.iloc[0]["Status"]
+                    st_ = str(last.iloc[0].get("Status", ""))
+                    try:
+                        tgl_next = pd.to_datetime(last.iloc[0].get("Tanggal_Berikutnya")).date()
+                        if tgl_next < hari_ini and st_ == "Siap Pakai":
+                            st_ = "Belum dicek"
+                    except Exception:
+                        pass
                     if st_ == "Siap Pakai":
                         st.success("**" + nama + "** — Siap")
                     elif st_ == "Tidak Siap":
@@ -1455,23 +1494,40 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                 else:
                     status = "Siap Pakai" if semua_ok else "Tidak Siap"
                     tgl_next = (tgl_insp + timedelta(days=interval)).strftime("%Y-%m-%d")
-                    baru = pd.DataFrame([{
+                    row = {
                         "Nama_Alat": alat,
                         "Tanggal_Inspeksi": tgl_insp.strftime("%Y-%m-%d"),
                         "Tanggal_Berikutnya": tgl_next,
-                        "Indikator": ind, "Status": status,
+                        "Indikator": ind,
+                        "Status": status,
                         "Petugas": petugas.strip(),
                         "Keterangan": ket.strip() if ket else "",
-                    }])
-                    for col in baru.columns:
-                        if col not in df_alat.columns:
-                            df_alat[col] = ""
-                    pd.concat([df_alat, baru], ignore_index=True).to_excel(FILE_ALAT, index=False)
-                    st.success("Tersimpan: " + status)
-                    st.rerun()
+                    }
+                    ok, msg = simpan_cek_alat_row(row)
+                    if ok:
+                        try:
+                            # cadangan lokal
+                            df_baru = pd.DataFrame([row])
+                            if os.path.exists(FILE_ALAT):
+                                df_lama = pd.read_excel(FILE_ALAT)
+                                for col in df_baru.columns:
+                                    if col not in df_lama.columns:
+                                        df_lama[col] = ""
+                                pd.concat([df_lama, df_baru], ignore_index=True).to_excel(FILE_ALAT, index=False)
+                            else:
+                                df_baru.to_excel(FILE_ALAT, index=False)
+                        except Exception:
+                            pass
+                        st.success("Tersimpan: " + status + " (" + msg + ")")
+                        st.rerun()
+                    else:
+                        st.error("Gagal simpan Supabase: " + msg)
         if not df_alat.empty:
             st.markdown("#### Riwayat")
-            st.dataframe(df_alat.sort_values("Tanggal_Inspeksi", ascending=False), use_container_width=True, hide_index=True)
+            tampil = df_alat.drop(columns=["id", "created_at"], errors="ignore")
+            if "Tanggal_Inspeksi" in tampil.columns:
+                tampil = tampil.sort_values("Tanggal_Inspeksi", ascending=False)
+            st.dataframe(tampil, use_container_width=True, hide_index=True)
 
     elif pilihan_menu == "5. Kelola Master Data":
         st.markdown("### 5. Kelola Master Data")
