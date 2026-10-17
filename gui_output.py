@@ -74,18 +74,32 @@ def teks_email_footer():
     )
 
 
+def upload_file_storage(uploaded_file, storage_path):
+    if uploaded_file is None:
+        return False, "Tidak ada file"
+    try:
+        sb = get_supabase()
+        file_bytes = uploaded_file.getvalue()
+        ctype = uploaded_file.type or "application/octet-stream"
+        sb.storage.from_("foto-monitoring").upload(
+            path=storage_path,
+            file=file_bytes,
+            file_options={"content-type": ctype, "upsert": "true"},
+        )
+        return True, storage_path
+    except Exception as e:
+        return False, str(e)
+
+
 def resolve_foto_path(path_str):
     if not path_str or str(path_str).strip() in ("", "nan", "None"):
         return None
     path_str = str(path_str).strip()
-
     if os.path.exists(path_str):
         return path_str
-
     local_try = os.path.join("foto_monitoring", path_str.replace("/", os.sep))
     if os.path.exists(local_try):
         return local_try
-
     if path_str.startswith("http://") or path_str.startswith("https://"):
         try:
             ext = os.path.splitext(path_str.split("?")[0])[1] or ".jpg"
@@ -94,7 +108,6 @@ def resolve_foto_path(path_str):
             return tmp.name
         except Exception:
             return None
-
     try:
         sb = get_supabase()
         pub = sb.storage.from_("foto-monitoring").get_public_url(path_str)
@@ -370,10 +383,7 @@ def load_smtp_config():
 
 def save_smtp_config(email, password):
     try:
-        pd.DataFrame([{
-            "Email": str(email).strip(),
-            "Password": str(password).strip().replace(" ", ""),
-        }]).to_excel(FILE_SMTP, index=False)
+        pd.DataFrame([{"Email": str(email).strip(), "Password": str(password).strip().replace(" ", "")}]).to_excel(FILE_SMTP, index=False)
     except Exception:
         pass
 
@@ -1181,11 +1191,11 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                                 lambda x: 1 if x.strip() and x.lower() != "nan" else 0
                             ).sum()
                         )
-            ada_peta = os.path.exists(os.path.join(FOLDER_PETA, "peta_1.jpg")) and os.path.exists(
-                os.path.join(FOLDER_PETA, "peta_2.jpg")
-            )
+            path_p1 = resolve_foto_path("peta/peta_1.jpg") or os.path.join(FOLDER_PETA, "peta_1.jpg")
+            path_p2 = resolve_foto_path("peta/peta_2.jpg") or os.path.join(FOLDER_PETA, "peta_2.jpg")
+            ada_peta = bool(path_p1 and os.path.exists(path_p1) and path_p2 and os.path.exists(path_p2))
             ada_ttd = any(
-                os.path.exists(os.path.join(FOLDER_TTD, f))
+                os.path.exists(os.path.join(FOLDER_TTD, f)) or resolve_foto_path("ttd/" + f)
                 for f in ["ttd_day.png", "ttd_night.png", "ttd_diperiksa.png", "ttd_disetujui.png"]
             )
 
@@ -1294,8 +1304,8 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                             )
                             body = (
                                 "Yth. Bapak/Ibu Superintendent Field HSSE,\n\n"
-                                "Dengan hormat, laporan pemantauan udara sesaat tanggal "
-                                + str(tgl_pilih) + " telah diperiksa oleh " + str(nama_user)
+                                "Dengan hormat, laporan tanggal " + str(tgl_pilih)
+                                + " telah diperiksa oleh " + str(nama_user)
                                 + " dan menunggu persetujuan final Bapak/Ibu.\n\n"
                                 "Status saat ini: Menunggu Disetujui."
                                 + teks_email_footer()
@@ -1346,8 +1356,8 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                         tujuan = smtp_em if smtp_em and "@" in smtp_em else "pengirimaplikasi@gmail.com"
                         body_final = (
                             "Yth. Bapak/Ibu Petugas / Tim Monitoring,\n\n"
-                            "Dengan hormat, kami informasikan bahwa laporan pemantauan udara sesaat tanggal "
-                            + str(tgl_pilih2) + " telah disetujui secara final oleh " + str(nama_user)
+                            "Dengan hormat, laporan tanggal " + str(tgl_pilih2)
+                            + " telah disetujui secara final oleh " + str(nama_user)
                             + ".\nDiajukan oleh: " + (diajukan or "-")
                             + "\nStatus: Final.\n\n"
                             "Petugas dapat mengunduh PDF laporan resmi melalui aplikasi."
@@ -1561,6 +1571,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
 
         with tab3:
             st.markdown("#### Upload Peta")
+            st.caption("Disimpan ke Supabase Storage (peta/...) dan salinan lokal.")
             os.makedirs(FOLDER_PETA, exist_ok=True)
             c1, c2 = st.columns(2)
             with c1:
@@ -1569,20 +1580,38 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                 if p1:
                     with open(path_p1, "wb") as f:
                         f.write(p1.getbuffer())
+                    ok, msg = upload_file_storage(p1, "peta/peta_1.jpg")
+                    if ok:
+                        st.success("Peta 1 → Storage: peta/peta_1.jpg")
+                    else:
+                        st.warning("Lokal OK, Storage gagal: " + msg)
                     st.image(p1, width=250)
-                    st.success("Peta 1 OK")
-                elif os.path.exists(path_p1):
-                    st.image(path_p1, width=250)
+                else:
+                    resolved = resolve_foto_path("peta/peta_1.jpg")
+                    if resolved and os.path.exists(resolved):
+                        st.image(resolved, width=250)
+                        st.caption("Dari Storage")
+                    elif os.path.exists(path_p1):
+                        st.image(path_p1, width=250)
             with c2:
                 p2 = st.file_uploader("Peta 2", type=["jpg", "jpeg", "png"], key="peta2")
                 path_p2 = os.path.join(FOLDER_PETA, "peta_2.jpg")
                 if p2:
                     with open(path_p2, "wb") as f:
                         f.write(p2.getbuffer())
+                    ok, msg = upload_file_storage(p2, "peta/peta_2.jpg")
+                    if ok:
+                        st.success("Peta 2 → Storage: peta/peta_2.jpg")
+                    else:
+                        st.warning("Lokal OK, Storage gagal: " + msg)
                     st.image(p2, width=250)
-                    st.success("Peta 2 OK")
-                elif os.path.exists(path_p2):
-                    st.image(path_p2, width=250)
+                else:
+                    resolved = resolve_foto_path("peta/peta_2.jpg")
+                    if resolved and os.path.exists(resolved):
+                        st.image(resolved, width=250)
+                        st.caption("Dari Storage")
+                    elif os.path.exists(path_p2):
+                        st.image(path_p2, width=250)
 
         with tab4:
             st.markdown("#### Nama Pejabat PDF")
@@ -1614,6 +1643,7 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
 
         with tab5:
             st.markdown("#### Upload Tanda Tangan")
+            st.caption("Disimpan ke Supabase Storage (ttd/...) dan salinan lokal.")
             os.makedirs(FOLDER_TTD, exist_ok=True)
             for label, fname, key in [
                 ("Day Shift", "ttd_day.png", "ttd_ds"),
@@ -1624,13 +1654,23 @@ def tampilkan_halaman_output(pilihan_menu, nama_user="", username="", role="petu
                 st.markdown("**" + label + "**")
                 f = st.file_uploader("Upload " + label, type=["png", "jpg", "jpeg"], key=key)
                 path = os.path.join(FOLDER_TTD, fname)
+                storage_path = "ttd/" + fname
                 if f:
                     with open(path, "wb") as out:
                         out.write(f.getbuffer())
+                    ok, msg = upload_file_storage(f, storage_path)
+                    if ok:
+                        st.success(label + " → Storage: " + storage_path)
+                    else:
+                        st.warning("Lokal OK, Storage gagal: " + msg)
                     st.image(f, width=180)
-                    st.success("OK")
-                elif os.path.exists(path):
-                    st.image(path, width=180)
+                else:
+                    resolved = resolve_foto_path(storage_path)
+                    if resolved and os.path.exists(resolved):
+                        st.image(resolved, width=180)
+                        st.caption("Dari Storage")
+                    elif os.path.exists(path):
+                        st.image(path, width=180)
 
         with tab6:
             st.markdown("#### Kelola Kesimpulan")
